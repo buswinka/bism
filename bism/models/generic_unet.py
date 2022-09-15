@@ -27,7 +27,6 @@ class UNet_3D(nn.Module):
                  ):
         """
         Initialize the model with custom depth, and dimensions, kernel size, and activation function.
-
         :param in_channels: int - Input channels
         :param out_channels:  int - Output Channels
         :param dims: Optional[List[int]] Number of filter channels for each block at each stage of the UNet
@@ -110,7 +109,6 @@ class UNet_3D(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         """
         Applies the UNet model to an input tensor
-
         :param x: 5D tensor [B, in_channels, X, Y, Z]
         :return: x: 5D tensor [B, out_channels, X, Y, Z]
         """
@@ -168,7 +166,6 @@ class UNet_2D(nn.Module):
                  ):
         """
         Initialize the model with custom depth, and dimensions, kernel size, and activation function.
-
         :param in_channels: int - Input channels
         :param out_channels:  int - Output Channels
         :param dims: Optional[List[int]] Number of filter channels for each block at each stage of the UNet
@@ -251,7 +248,6 @@ class UNet_2D(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         """
         Applies the UNet model to an input tensor
-
         :param x: 5D tensor [B, in_channels, X, Y, Z]
         :return: x: 5D tensor [B, out_channels, X, Y, Z]
         """

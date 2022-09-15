@@ -8,3 +8,4 @@ When at all possible, each model will offer a 2D or 3D implementation, however w
 List of Current Models:
 - Unet 2D/3D
 - Unext 2D/3D
+- Recurrent Unet
