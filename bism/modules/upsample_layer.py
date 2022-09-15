@@ -34,7 +34,7 @@ class UpSampleLayer2D(nn.Module):
         super(UpSampleLayer2D, self).__init__()
         self.method = method
         self.norm = LayerNorm(in_channels, eps=1e-6, data_format="channels_first")
-        self.compress = nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size, stride=1, padding=padding)
+        self.compress = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=1, padding=padding)
 
     def forward(self, x: Tensor, shape: List[int]) -> Tensor:
         'Upsample layer'
