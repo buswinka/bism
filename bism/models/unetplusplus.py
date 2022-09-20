@@ -115,13 +115,14 @@ class UNetPlusPlus_3D(nn.Module):
 
         Applies the UNet++ model to an input tensor. Assumes a UNet++ structure of:
         (Note - this representation is not how the model was represented in the publication..."
-                  i =     0 1 2 3 4
-                 ---------------------
-          |C: 16 | in ->  ■ ■ ■ ■ ■ -> out
-          |C: 32 |        ■ ■ ■ ■
-        l |C: 64 |        ■ ■ ■
-          |C:128 |        ■ ■
-          |C:256 |        ■
+
+                  i =     0 1 2 3 4       --->      Schematized
+                 -------------------------   ------------------------
+          |C: 16 | in ->  ■ ■ ■ ■ ■ -> out |   in -> ■ ■ ■ ■ ■ -> out
+          |C: 32 |        ■ ■ ■ ■          |          ■ ■ ■ ■
+        l |C: 64 |        ■ ■ ■            |           ■ ■ ■
+          |C:128 |        ■ ■              |            ■ ■
+          |C:256 |        ■                |             ■
 
         Where *l* is the "Layer" and *i* is the "STAGE" and ■ is a convolutional "Block"
 

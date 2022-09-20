@@ -205,6 +205,6 @@ class UNeXT_3D(nn.Module):
 
 
 if __name__=='__main__':
-    model = UNeXT_3D(depths=[1, 1, 1, 1, 1], dims=[1,2,3,4,5])
+    model = UNeXT_3D(depths=[1, 1, 1, 1, 1], dims=[1,2,3,4,5], out_channels=16)
     x = torch.rand((1,1,300,300,20))
-    _ = model(x)
+    y = model(x)
