@@ -26,7 +26,7 @@ class RBlock3D(nn.Module):
 
 
     def __repr__(self):
-        return f'Recurrent UNet Block[dim: {self.dim}, kernel_size: {self.kernel_size}, N: {self.n}]'
+        return f'RUNetBlock3D[dim: {self.dim}, kernel_size: {self.kernel_size}, N: {self.n}]'
 
     def forward(self, x: Tensor) -> Tensor:
         for _ in range(self.n):
@@ -49,18 +49,18 @@ class RBlock2D(nn.Module):
         super(RBlock2D, self).__init__()
 
         self.kernel_size = (kernel_size,) * 2 if isinstance(kernel_size, int) else kernel_size
-        padding = tuple([k // 2 for k in kernel_size])
+        padding = tuple([k // 2 for k in self.kernel_size])
 
         self.conv = nn.Conv2d(dim, dim, kernel_size=self.kernel_size, padding=padding, groups=1,
                               dilation=dilation)  # depthwise conv
-        self.norm = nn.BatchNorm3d(dim)
+        self.norm = nn.BatchNorm2d(dim)
         self.act = activation() if activation else nn.GELU()
 
         self.dim = dim
         self.n = N
 
     def __repr__(self):
-        return f'Recurrent UNet Block[dim: {self.dim}, kernel_size: {self.kernel_size}, N: {self.n}]'
+        return f'RUNetBlock2D[dim: {self.dim}, kernel_size: {self.kernel_size}, N: {self.n}]'
 
     def forward(self, x: Tensor) -> Tensor:
         for _ in range(self.n):
