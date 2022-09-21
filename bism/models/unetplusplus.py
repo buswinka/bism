@@ -23,10 +23,10 @@ class UNetPlusPlus_3D(nn.Module):
                  depths: Optional[List[int]] = (2, 2, 2, 2),  # [1, 2, 3, 2, 1],
                  kernel_size: Optional[Union[Tuple[int], int]] = 3,
                  activation: Optional[nn.Module] = nn.ReLU,
-                 block = Block3D,
-                 concat_conv = ConcatConv3D,
-                 upsample_layer = UpSampleLayer3D,
-                 normalization = partial(LayerNorm, data_format='channels_first'),
+                 block: Optional[nn.Module] = Block3D,
+                 concat_conv: Optional[nn.Module] = ConcatConv3D,
+                 upsample_layer: Optional[nn.Module] = UpSampleLayer3D,
+                 normalization: Optional[nn.Module] = partial(LayerNorm, data_format='channels_first'),
                  ):
         """
         Initialize the model with custom depth, and dimensions, kernel size, and activation function.
