@@ -111,10 +111,10 @@ class UNetPlusPlus_3D(nn.Module):
     @torch.jit.ignore()
     def forward(self, x: Tensor) -> Tensor:
         """
-        NOT SCRITPABLE!
+        NOT SCRITPABLE! In theory you could make it scriptable but shenanigans with the nn.Module list
+        make it unikely... maybe worth doing if speeds up considerably.
 
         Applies the UNet++ model to an input tensor. Assumes a UNet++ structure of:
-        (Note - this representation is not how the model was represented in the publication..."
 
                   i =     0 1 2 3 4       --->      Schematized
                  -------------------------   ------------------------
@@ -126,6 +126,9 @@ class UNetPlusPlus_3D(nn.Module):
 
         Where *l* is the "Layer" and *i* is the "STAGE" and ■ is a convolutional "Block"
 
+        (How we represent the relationships of the blocks are on the left)
+        (How the paper represents the relationship between blocks are on the right)
+
         ---------
         A Block PRESERVES the number of dimmensions | C: N -> N
         Upsamples REDCUE the number of dimensions   | C: N -> M  [N > M]
@@ -134,17 +137,19 @@ class UNetPlusPlus_3D(nn.Module):
         Channels increase as l gets deeper according to self.dims
         --------
 
-        :param x: 5D tensor [B, in_channels, X, Y, Z]
-        :return: x: 5D tensor [B, out_channels, X, Y, Z]
+        :param x: 5D tensor [B, in_channels, X, Y, Z] INPUT
+        :return: x: 5D tensor [B, out_channels, X, Y, Z] OUTPUT
         """
-
-        cache: List[List[Tensor]] = [[] for _ in range(self.L)]  # This is where we cache the intermediate tensors...
+        # We have two caches for tensors.
+        # Cache preserves every intermediary tensor after a block
+        # upsample only preserves the results of the upsample modules so that we can input them to the next stage
+        cache: List[List[Tensor]] = [[] for _ in range(self.L)]
         upsample: List[Tensor] = [torch.empty(0) for _ in range(self.L)]
 
-        y = self.in_conv(x)
+        y: Tensor = self.in_conv(x)
 
         for i in range(self.L):  # This is the STAGE
-            shapes: List[Tensor] = [torch.tensor(y.shape)]
+            shapes: List[Tensor] = [torch.tensor(y.shape)]  # We need the shape of the tensor for upsampling later
 
             for l in range(self.L - i):  # This is the LAYER
                 if i != 0:
