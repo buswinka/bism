@@ -109,14 +109,14 @@ class Block2D(nn.Module):
     def forward(self, x: Tensor) -> Tensor:  # Image of shape (B, C, H, W) -> (10, 3, 100, 100)
         input = x
         x = self.dwconv(x)
-        x = x.permute(0, 2, 3, 4, 1)  # (N, C, H, W) -> (N, H, W, C)
+        x = x.permute(0, 2, 3, 1)  # (B, C, H, W) -> (N, H, W, C)
         x = self.norm(x)
         x = self.pwconv1(x)
         x = self.act(x)
         x = self.pwconv2(x)
         if self.gamma is not None:
             x = self.gamma * x
-        x = x.permute(0, 4, 1, 2, 3)  # (N, H, W, C) -> (N, C, H, W)
+        x = x.permute(0, 3, 1, 2)  # (B, H, W, C) -> (N, C, H, W)
 
         x = input + self.drop_path(x)
         return x

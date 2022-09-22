@@ -7,26 +7,27 @@ When at all possible, each model will offer a 2D or 3D implementation, however w
 Current Models
 ---------------
 
-| Model          | 2D  | 3D   |
-|----------------|-----|------|
-| UNet           | ✓   | ✓    |
-| UNeXT          | ✓   | ✓    |
-| Recurrent UNet | ✓   | ✓    |
-| Residual UNet  |     |      |
-| Unet++         | ✓   | ✓    |
-| CPnet          |     |      |
+| Model          | 2D  | 3D  |
+|----------------|-----|-----|
+| UNet           | ✓   | ✓   |
+| UNeXT          | ✓   | ✓   |
+| Recurrent UNet | ✓   | ✓   |
+| Residual UNet  |     |     |
+| Unet++         | ✓   | ✓   |
+| CPnet          | ✓   | ✓   |
 
 
 Current Generic Blocks
 ----------------------
 
-| BLOCK NAME           | 2D   | 3D   | Scriptable |
-|----------------------|------|------|------------|
-| UNeXT Block          | ✓    | ✓    |            |
-| ConcatConv           | ✓    | ✓    |            |
-| Recurrent UNet BLock | ✓    | ✓    |            |
-| Residual UNet BLock  |      |      |            |
-| DropPath             | ✓    | ✓    |            |
-| LayerNorm            | ✓    | ✓    |            |
-| UpSample             | ✓    | ✓    |            |
+| BLOCK NAME           | 2D   | 3D  |
+|----------------------|------|-----|
+| UNeXT Block          | ✓    | ✓   |
+| ConcatConv           | ✓    | ✓   |
+| Recurrent UNet BLock | ✓    | ✓   |
+| Residual UNet BLock  | ✓    | ✓   |
+| DropPath             | ✓    | ✓   |
+| LayerNorm            | ✓    | ✓   |
+| UpSample             | ✓    | ✓   |
+| ViT Block            |      |     |
 

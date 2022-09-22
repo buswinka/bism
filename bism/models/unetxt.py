@@ -11,10 +11,11 @@ from bism.modules.upsample_layer import UpSampleLayer3D, UpSampleLayer2D
 from functools import partial
 
 
-class UNeXT_3D(nn.Module):
+class UNeXTND(nn.Module):
     def __init__(self,
                  in_channels: Optional[int] = 1,
                  out_channels: int = 4,
+                 spatial_dim: int = 2,
                  *,
                  depths: Optional[List[int]] = [2, 2, 2, 2, 2],
                  dims: Optional[List[int]] = [32, 64, 128, 64, 32],
@@ -28,7 +29,7 @@ class UNeXT_3D(nn.Module):
                  normalization: Optional[nn.Module] = partial(LayerNorm, data_format='channels_first'),
                  name: Optional[str] = 'UNeXT'
                  ):
-        super(UNeXT_3D, self).__init__()
+        super(UNeXTND, self).__init__()
 
         assert len(depths) == len(dims), f'Number of depths should equal number of dims: {depths} != {dims}'
 
@@ -47,6 +48,10 @@ class UNeXT_3D(nn.Module):
         self._normalizatoin = str(normalization)
 
         self._name = name
+
+        self.spatial_dim = spatial_dim
+        assert spatial_dim in (2, 3), f'Spatial Dimmension of {spatial_dim} is not supported'
+        convolution = nn.Conv2d if spatial_dim == 2 else nn.Conv3d
 
         # 2D or 3D
         Block = block
@@ -69,13 +74,13 @@ class UNeXT_3D(nn.Module):
 
         # ----------------- Stage 1
         self.init_stage = nn.Sequential(
-            nn.Conv3d(in_channels, dims[0], kernel_size=7, padding=3),
+            convolution(in_channels, dims[0], kernel_size=(7,) * spatial_dim, padding=(3,) * spatial_dim),
             Block(dim=dims[0], drop_path=0.0, kernel_size=kernel_size, activation=activation)
         )
 
         # ----------------- Unlike original conv next we cannot reduce the stem by that much...
         stem = nn.Sequential(
-            nn.Conv3d(dims[0], dims[0], kernel_size=(2, 2, 2), stride=(2, 2, 2)),
+            convolution(dims[0], dims[0], kernel_size=(2,) * spatial_dim, stride=(2,) * spatial_dim),
             normalization(dims[0])
         )
         self.downsample_layers.append(stem)
@@ -84,7 +89,7 @@ class UNeXT_3D(nn.Module):
         for i in range(len(dims) // 2):
             downsample_layer = nn.Sequential(
                 LayerNorm(dims[i], eps=1e-6, data_format="channels_first"),
-                nn.Conv3d(dims[i], dims[i + 1], kernel_size=(2, 2, 2), stride=(2, 2, 2)),
+                convolution(dims[i], dims[i + 1], kernel_size=(2,) * spatial_dim, stride=(2,) * spatial_dim),
             )
             self.downsample_layers.append(downsample_layer)
 
@@ -142,7 +147,7 @@ class UNeXT_3D(nn.Module):
         self.tanh = nn.Tanh()
 
         # Flatten Channels to out...
-        self.out_conv = nn.Conv3d(dims[-1], out_channels, kernel_size=1)
+        self.out_conv = convolution(dims[-1], out_channels, kernel_size=1)
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -200,11 +205,90 @@ class UNeXT_3D(nn.Module):
         return x
 
     def __repr__(self):
-        return f'UNeXT[dims={self.dims}, depths={self.depths}, ' \
-               f'in_channels={self.in_channels}, out_channels={self.out_channels}]'
+        return f'{self._name}{self.spatial_dim}D[dims={self.dims}, depths={self.depths}, ' \
+               f'in_channels={self.in_channels}, out_channels={self.out_channels}, block={self._block}, ' \
+               f'normalization={self._normalizatoin}, activation={self._activation}, upsample={self._upsample_layer}, ' \
+               f'concat={self._concat_conv}]'
+
+
+class UNeXT_3D(UNeXTND):
+    def __init__(self,
+                 in_channels: Optional[int] = 1,
+                 out_channels: int = 4,
+                 *,
+                 depths: Optional[List[int]] = [2, 2, 2, 2, 2],
+                 dims: Optional[List[int]] = [32, 64, 128, 64, 32],
+                 kernel_size: Optional[int] = 7,
+                 drop_path_rate: Optional[float] = 0.0,
+                 layer_scale_init_value: Optional[float] = 1.,
+                 activation: Optional[nn.Module] = nn.GELU,
+                 block: Optional[nn.Module] = Block3D,
+                 concat_conv: Optional[nn.Module] = ConcatConv3D,
+                 upsample_layer: Optional[nn.Module] = UpSampleLayer3D,
+                 normalization: Optional[nn.Module] = partial(LayerNorm, data_format='channels_first'),
+                 name: Optional[str] = 'UNeXT'
+                 ):
+        super(UNeXT_3D, self).__init__(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            spatial_dim=3,
+            depths=depths,
+            dims=dims,
+            kernel_size=kernel_size,
+            drop_path_rate=drop_path_rate,
+            layer_scale_init_value=layer_scale_init_value,
+            activation=activation,
+            block=block,
+            concat_conv=concat_conv,
+            upsample_layer=upsample_layer,
+            normalization=normalization,
+            name=name
+        )
+
+
+class UNeXT_2D(UNeXTND):
+    def __init__(self,
+                 in_channels: Optional[int] = 1,
+                 out_channels: int = 4,
+                 *,
+                 depths: Optional[List[int]] = [2, 2, 2, 2, 2],
+                 dims: Optional[List[int]] = [32, 64, 128, 64, 32],
+                 kernel_size: Optional[int] = 7,
+                 drop_path_rate: Optional[float] = 0.0,
+                 layer_scale_init_value: Optional[float] = 1.,
+                 activation: Optional[nn.Module] = nn.GELU,
+                 block: Optional[nn.Module] = Block2D,
+                 concat_conv: Optional[nn.Module] = ConcatConv2D,
+                 upsample_layer: Optional[nn.Module] = UpSampleLayer2D,
+                 normalization: Optional[nn.Module] = partial(LayerNorm, data_format='channels_first'),
+                 name: Optional[str] = 'UNeXT'
+                 ):
+        super(UNeXT_2D, self).__init__(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            spatial_dim=2,
+            depths=depths,
+            dims=dims,
+            kernel_size=kernel_size,
+            drop_path_rate=drop_path_rate,
+            layer_scale_init_value=layer_scale_init_value,
+            activation=activation,
+            block=block,
+            concat_conv=concat_conv,
+            upsample_layer=upsample_layer,
+            normalization=normalization,
+            name=name
+        )
 
 
 if __name__=='__main__':
     model = UNeXT_3D(depths=[1, 1, 1, 1, 1], dims=[1,2,3,4,5], out_channels=16)
+    print(model)
     x = torch.rand((1,1,300,300,20))
     y = model(x)
+
+    model = UNeXT_2D(depths=[1, 1, 1, 1, 1], dims=[1,2,3,4,5], out_channels=16)
+    print(model)
+    x = torch.rand((1,1,300,300))
+    y = model(x)
+
