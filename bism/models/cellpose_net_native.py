@@ -11,6 +11,12 @@ The Native Implementation of CPnet from Cellpose! Refactored for clarity and bes
 Will re-implement later... as of right now, its kinda hard to re-work to be similar to other UNet implementations...
 Also they have a weird residual block architecture... 
 
+Re-Implementation Strategy is
+-----------------------------
+1. Get rid of all of these fucked blocks n shit.. Use a standardized approach...
+2. Standardize the residual block
+3. 
+
 """
 
 def ConvBatchReLU(in_channels: int, out_channels: int, kernel_size: int) -> nn.Module:
@@ -229,6 +235,7 @@ class CPnet(nn.Module):
         self.concatenation = concatenation
 
         self.downsample = DownsampleBlock(dims, kernel_size, residual_on=residual_on)
+        print(self.downsample)
 
         nbaseup = dims[1:]
         nbaseup.append(nbaseup[-1])
