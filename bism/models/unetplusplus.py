@@ -10,7 +10,7 @@ from bism.modules.upsample_layer import UpSampleLayer3D, UpSampleLayer2D
 from bism.modules.layer_norm import LayerNorm
 
 
-class UNetPlusPlus_3D(nn.Module):
+class UNetPlusPlusND(nn.Module):
     """
     Generic Constructor for a UNet architecture of variable size and shape.
     """
@@ -18,6 +18,7 @@ class UNetPlusPlus_3D(nn.Module):
                  in_channels: Optional[int] = 1,
                  out_channels: int = 1,
                  L: int = 4,
+                 spatial_dim: int = 2,
                  *,
                  dims: Optional[List[int]] = (16, 32, 64, 128),  # [16, 32, 64, 128],
                  depths: Optional[List[int]] = (2, 2, 2, 2),  # [1, 2, 3, 2, 1],
@@ -27,6 +28,7 @@ class UNetPlusPlus_3D(nn.Module):
                  concat_conv: Optional[nn.Module] = ConcatConv3D,
                  upsample_layer: Optional[nn.Module] = UpSampleLayer3D,
                  normalization: Optional[nn.Module] = partial(LayerNorm, data_format='channels_first'),
+                 name: Optional[str]='UNet++'
                  ):
         """
         Initialize the model with custom depth, and dimensions, kernel size, and activation function.
@@ -37,7 +39,7 @@ class UNetPlusPlus_3D(nn.Module):
         :param kernel_size: Optional[Union[Tuple[int], int]] Kernel size for each convolution in a UNet block
         :param activation: Optional[nn.Module] Activation function for each block in the UNet
         """
-        super(UNetPlusPlus_3D, self).__init__()
+        super(UNetPlusPlusND, self).__init__()
 
         assert len(depths) == len(dims) == L, f'Number of depths should equal number of dims and layers: {depths} != {dims} != {L}'
 
@@ -50,13 +52,25 @@ class UNetPlusPlus_3D(nn.Module):
         self.activation = activation
         self.L = L
 
+        self.spatial_dim = spatial_dim
+        assert spatial_dim in (2, 3), f'Spatial Dimmension of {spatial_dim} is not supported'
+        convolution = nn.Conv2d if spatial_dim == 2 else nn.Conv3d
+
+        # For repr
+        self._activation = str(activation)
+        self._block = str(block)
+        self._concat_conv = str(concat_conv)
+        self._upsample_layer = str(upsample_layer)
+        self._normalizatoin = str(normalization)
+        self._name = name
+
         # 2D or 3D | Weird case rules because they're all nn.Module classes...
         Block: nn.Module = block
         ConcatConv: nn.Module = concat_conv
         UpSampleLayer: nn.Module = upsample_layer
 
-        self.in_conv = nn.Conv3d(in_channels=in_channels, out_channels=dims[0], kernel_size=self.kernel_size, padding=(1,1,1))
-        self.out_conv = nn.Conv3d(in_channels=dims[0], out_channels=out_channels, kernel_size=self.kernel_size, padding=(1,1,1))
+        self.in_conv = convolution(in_channels=in_channels, out_channels=dims[0], kernel_size=self.kernel_size, padding=(1,) * spatial_dim)
+        self.out_conv = convolution(in_channels=dims[0], out_channels=out_channels, kernel_size=self.kernel_size, padding=(1,) * spatial_dim)
 
         # All Computation Blocks indexed like a list of lists [L, I]
         self.blocks = nn.ModuleList()
@@ -103,7 +117,7 @@ class UNetPlusPlus_3D(nn.Module):
             for l in range(self.L - (i+1)):
                 downsample.append(
                     nn.Sequential(
-                        nn.Conv3d(dims[l], dims[l + 1], kernel_size=(2, 2, 2), stride=(2, 2, 2)),
+                        convolution(dims[l], dims[l + 1], kernel_size=(2,) * spatial_dim, stride=(2,) * spatial_dim),
                         normalization(dims[l + 1],))
                     )
             self.downsample.append(downsample)
@@ -176,12 +190,82 @@ class UNetPlusPlus_3D(nn.Module):
         return self.out_conv(y)
 
     def __repr__(self):
-        return f'UNet++[in_channels={self.in_channels}, out_channels={self.out_channels}, ' \
-               f'dims={self.dims}, depths={self.depths}, ' \
-               f'kernel_size={self.kernel_size}, activation={self.activation}]'
+        return f'{self._name}{self.spatial_dim}D[dims={self.dims}, depths={self.depths}, ' \
+               f'in_channels={self.in_channels}, out_channels={self.out_channels}, block={self._block}, ' \
+               f'normalization={self._normalizatoin}, activation={self._activation}, upsample={self._upsample_layer}, ' \
+               f'concat={self._concat_conv}]'
 
+class UNetPlusPlus_2D(UNetPlusPlusND):
+    def __init__(self,
+                 in_channels: Optional[int] = 1,
+                 out_channels: int = 4,
+                 L: int = 4,
+                 *,
+                 depths: Optional[List[int]] = [2, 2, 2, 2, 2],
+                 dims: Optional[List[int]] = [32, 64, 128, 64, 32],
+                 kernel_size: Optional[int] = 7,
+                 activation: Optional[nn.Module] = nn.GELU,
+                 block: Optional[nn.Module] = Block2D,
+                 concat_conv: Optional[nn.Module] = ConcatConv2D,
+                 upsample_layer: Optional[nn.Module] = UpSampleLayer2D,
+                 normalization: Optional[nn.Module] = partial(LayerNorm, data_format='channels_first'),
+                 name: Optional[str] = 'Unet++'
+                 ):
+
+        super(UNetPlusPlus_2D, self).__init__(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            L = L,
+            spatial_dim=2,
+            depths=depths,
+            dims=dims,
+            kernel_size=kernel_size,
+            activation=activation,
+            block=block,
+            concat_conv=concat_conv,
+            upsample_layer=upsample_layer,
+            normalization=normalization,
+            name=name
+        )
+
+
+class UNetPlusPlus_3D(UNetPlusPlusND):
+    def __init__(self,
+                 in_channels: Optional[int] = 1,
+                 out_channels: int = 4,
+                 L: int = 4,
+                 *,
+                 depths: Optional[List[int]] = [2, 2, 2, 2, 2],
+                 dims: Optional[List[int]] = [32, 64, 128, 64, 32],
+                 kernel_size: Optional[int] = 7,
+                 activation: Optional[nn.Module] = nn.GELU,
+                 block: Optional[nn.Module] = Block3D,
+                 concat_conv: Optional[nn.Module] = ConcatConv3D,
+                 upsample_layer: Optional[nn.Module] = UpSampleLayer3D,
+                 normalization: Optional[nn.Module] = partial(LayerNorm, data_format='channels_first'),
+                 name: Optional[str] = 'UNet++'
+                 ):
+        super(UNetPlusPlus_3D, self).__init__(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            L=L,
+            spatial_dim=3,
+            depths=depths,
+            dims=dims,
+            kernel_size=kernel_size,
+            activation=activation,
+            block=block,
+            concat_conv=concat_conv,
+            upsample_layer=upsample_layer,
+            normalization=normalization,
+            name=name
+        )
 
 if __name__ == '__main__':
     model = UNetPlusPlus_3D(dims=[1,1,1,1], depths=[1,1,1,1], L=4)
     x = torch.rand(1,1,300,300,20)
+    _ = model(x)
+
+    model = UNetPlusPlus_2D(dims=[1,1,1,1], depths=[1,1,1,1], L=4)
+    x = torch.rand(1,1,300,300)
     _ = model(x)
