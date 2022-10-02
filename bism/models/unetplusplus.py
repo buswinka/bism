@@ -12,7 +12,7 @@ from bism.modules.layer_norm import LayerNorm
 
 class UNetPlusPlusND(nn.Module):
     """
-    Generic Constructor for a UNet architecture of variable size and shape.
+    Generic Constructor for a UNet++ architecture of variable size and shape.
     """
     def __init__(self,
                  in_channels: Optional[int] = 1,
@@ -32,6 +32,7 @@ class UNetPlusPlusND(nn.Module):
                  ):
         """
         Initialize the model with custom depth, and dimensions, kernel size, and activation function.
+
         :param in_channels: int - Input channels
         :param out_channels:  int - Output Channels
         :param dims: Optional[List[int]] Number of filter channels for each block at each stage of the UNet
@@ -195,6 +196,7 @@ class UNetPlusPlusND(nn.Module):
                f'normalization={self._normalizatoin}, activation={self._activation}, upsample={self._upsample_layer}, ' \
                f'concat={self._concat_conv}]'
 
+
 class UNetPlusPlus_2D(UNetPlusPlusND):
     def __init__(self,
                  in_channels: Optional[int] = 1,
@@ -260,6 +262,7 @@ class UNetPlusPlus_3D(UNetPlusPlusND):
             normalization=normalization,
             name=name
         )
+
 
 if __name__ == '__main__':
     model = torch.jit.script(UNetPlusPlus_3D(dims=[1,1,1,1], depths=[1,1,1,1], L=4))

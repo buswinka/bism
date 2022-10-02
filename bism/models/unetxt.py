@@ -13,9 +13,9 @@ from functools import partial
 # Scriptable!!!
 class UNeXTND(nn.Module):
     def __init__(self,
-                 in_channels: Optional[int] = 1,
-                 out_channels: int = 4,
-                 spatial_dim: int = 2,
+                 in_channels: int,
+                 out_channels: int,
+                 spatial_dim: int,
                  *,
                  depths: Optional[List[int]] = [2, 2, 2, 2, 2],
                  dims: Optional[List[int]] = [32, 64, 128, 64, 32],
@@ -29,7 +29,41 @@ class UNeXTND(nn.Module):
                  normalization: Optional[nn.Module] = partial(LayerNorm, data_format='channels_first'),
                  name: Optional[str] = 'UNeXT'
                  ):
+        """
+        Initalizes a (2/3)D UNeXT Model.
+
+        :param in_channels: Model input channels
+        :type in_channels: int
+        :param out_channels: Model output channels
+        :type out_channels: int
+        :param spatial_dim: Spatial dimmensions; either 2 or 3
+        :type spatial_dim: int
+        :param depths: The number of computational blocks at each part of the U. Must have an odd number of elements
+        :type depths: List[int]
+        :param dims: Channels at each stage of the U. Must be the same length as depths
+        :type dims: List[int]
+        :param kernel_size: Kernel size of all convolutions in computational blocks
+        :type kernel_size: int
+        :param drop_path_rate: Drop path probability
+        :type drop_path_rate: float
+        :param layer_scale_init_value: Initializes residual path scaling parameter. If 0.0, does nothing.
+        :type layer_scale_init_value: float
+        :param activation: Activation function of computational blocks if applicable
+        :type activation: nn.Module
+        :param block: Convolution computational block.
+        :type block: nn.Module
+        :param concat_conv: Concatentation block
+        :type concat_conv: nn.Module
+        :param upsample_layer: Upsample block
+        :type upsample_layer: nn.Module
+        :param normalization: Normalization layer
+        :type normalization: nn.Module
+        :param name: Name of the model which is shown in the repr
+        :type name: str
+        """
+
         super(UNeXTND, self).__init__()
+
 
         assert len(depths) == len(dims), f'Number of depths should equal number of dims: {depths} != {dims}'
 
@@ -151,20 +185,12 @@ class UNeXTND(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         """
+        Performs the forward pass of the model.
 
-        NEEDS INPUT TO BE NORMALIZED TO GET ANYWHERE! WAS JACK SHIT BEFORE NORMALIZATION!!!!
-
-        Plan is to preinitalize steps to include the necessary shit with torch.empty(devie=cuda)
-        I think that allocating and dealocating is expensive
-        See significant speedup in epoch time if batch size is 1
-
-        I dont know why... Figure out tomorrow. Could be data bus and distributed data?
-
-        Time per epoch with batch size of 24: ~30 seconds
-        Time per epoch with batch size of 2: ~10-15seconds
-
-        :param x:
-        :return:
+        :param x: Input 4/5D tensor [B, C, X, Y, Z?]
+        :type x: Tensor
+        :return: Output tensor of identical size as input
+        :rtype: Tensor
         """
         x = self.init_stage(x)
 
@@ -228,6 +254,37 @@ class UNeXT_3D(UNeXTND):
                  normalization: Optional[nn.Module] = partial(LayerNorm, data_format='channels_first'),
                  name: Optional[str] = 'UNeXT'
                  ):
+        """
+        Initalizes a 3D UNeXT Model.
+
+        :param in_channels: Model input channels
+        :type in_channels: int
+        :param out_channels: Model output channels
+        :type out_channels: int
+        :param depths: The number of computational blocks at each part of the U. Must have an odd number of elements
+        :type depths: List[int]
+        :param dims: Channels at each stage of the U. Must be the same length as depths
+        :type dims: List[int]
+        :param kernel_size: Kernel size of all convolutions in computational blocks
+        :type kernel_size: int
+        :param drop_path_rate: Drop path probability
+        :type drop_path_rate: float
+        :param layer_scale_init_value: Initializes residual path scaling parameter. If 0.0, does nothing.
+        :type layer_scale_init_value: float
+        :param activation: Activation function of computational blocks if applicable
+        :type activation: nn.Module
+        :param block: 3D compatible convolution computational block.
+        :type block: nn.Module
+        :param concat_conv: 3D compatible concatentation block
+        :type concat_conv: nn.Module
+        :param upsample_layer: 3D compatible upsample block
+        :type upsample_layer: nn.Module
+        :param normalization: 3D compatible normalization layer
+        :type normalization: nn.Module
+        :param name: Name of the model which is shown in the repr
+        :type name: str
+        """
+
         super(UNeXT_3D, self).__init__(
             in_channels=in_channels,
             out_channels=out_channels,
@@ -263,6 +320,36 @@ class UNeXT_2D(UNeXTND):
                  normalization: Optional[nn.Module] = partial(LayerNorm, data_format='channels_first'),
                  name: Optional[str] = 'UNeXT'
                  ):
+        """
+        Initalizes a 2D UNeXT Model.
+
+        :param in_channels: Model input channels
+        :type in_channels: int
+        :param out_channels: Model output channels
+        :type out_channels: int
+        :param depths: The number of computational blocks at each part of the U. Must have an odd number of elements
+        :type depths: List[int]
+        :param dims: Channels at each stage of the U. Must be the same length as depths
+        :type dims: List[int]
+        :param kernel_size: Kernel size of all convolutions in computational blocks
+        :type kernel_size: int
+        :param drop_path_rate: Drop path probability
+        :type drop_path_rate: float
+        :param layer_scale_init_value: Initializes residual path scaling parameter. If 0.0, does nothing.
+        :type layer_scale_init_value: float
+        :param activation: Activation function of computational blocks if applicable
+        :type activation: nn.Module
+        :param block: Convolution computational block.
+        :type block: nn.Module
+        :param concat_conv: Concatentation block
+        :type concat_conv: nn.Module
+        :param upsample_layer: Upsample block
+        :type upsample_layer: nn.Module
+        :param normalization: Normalization layer
+        :type normalization: nn.Module
+        :param name: Name of the model which is shown in the repr
+        :type name: str
+        """
         super(UNeXT_2D, self).__init__(
             in_channels=in_channels,
             out_channels=out_channels,
