@@ -256,6 +256,19 @@ class UNeXT_3D(UNeXTND):
                  ):
         """
         Initalizes a 3D UNeXT Model.
+        ::
+           dims = [32, 64, 128, 64, 32]
+           depths = [2, 2, 4, 2, 2]
+
+           ■ : ConvNextBlock
+           ─ : Skip Connections
+
+                      Depths:    2   2     4     2   2
+                      ┌──────────────────────────────────────
+           Dims:   32 │   in -> ■ ■─┬─────────────┬─■ ■ -> out
+                   64 │             ■ ■─┬─────┬─■ ■
+                  128 │                 ■ ■ ■ ■
+
 
         :param in_channels: Model input channels
         :type in_channels: int
