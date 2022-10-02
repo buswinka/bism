@@ -11,7 +11,7 @@ from bism.modules.upsample_layer import UpSampleLayer3D, UpSampleLayer2D
 
 from functools import partial
 
-
+# This can be scripted!!!
 class UNetND(nn.Module):
     """
     Generic Constructor for a UNet architecture of variable size and shape.
@@ -139,17 +139,16 @@ class UNetND(nn.Module):
         """
 
         steps: List[Tensor] = []
-        shapes: List[Tensor] = []
+        shapes: List[List[int]] = []
         shapes.append(x.shape)
 
         # Down Stage of the Unet
         for i, (down, stage) in enumerate(zip(self.downsample_layers, self.down_blocks)):
-            print(x.shape, stage)
             x: Tensor = stage(x)
+
             shapes.append(x.shape)  # Save shape for upswing of Unet
             steps.append(x)  # Save shape for upswing of Unet
 
-            print(x.shape, down)
             x: Tensor = down(x)
 
         x: Tensor = self.down_blocks[-1](x)  # bottom of the U
@@ -243,6 +242,6 @@ class UNet_2D(UNetND):
 
 
 if __name__ == '__main__':
-    model = UNet_2D(in_channels=1, out_channels=1, dims=(4, 8, 16, 8, 4))
-    a = torch.rand((1, 1, 100, 100))
+    model = torch.jit.script(UNet_3D(in_channels=1, out_channels=1, dims=(4, 8, 16, 8, 4)))
+    a = torch.rand((1, 1, 100, 100, 20))
     out = model(a)

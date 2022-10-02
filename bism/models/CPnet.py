@@ -298,7 +298,6 @@ class CPnet_3D(CPnetND):
 
 
 if __name__=='__main__':
-    model = CPnet_2D(depths=[2, 2, 2, 2, 2], dims=[8,16,32,16,8], out_channels=16)
-    print(model)
-    # x = torch.rand((1, 1, 300, 300))
-    # y = model(x)
+    model = CPnet_3D(depths=[2, 2, 2, 2, 2], dims=[8,16,32,16,8], out_channels=16)
+    x = torch.rand((1, 1, 300, 300, 20))
+    y = model(x)

@@ -46,11 +46,19 @@ class MergeStyle(nn.Module):
         self.linear = nn.Linear(style_channels, dim)
 
     def forward(self, x: Tensor, style: Tensor) -> Tensor:
-        shape = x.shape
-        newshape = [shape[0], shape[1]] + [1 for _ in range(x.ndim - 2)]
 
         features = self.linear(style)
-
-        x = x + features.view(*newshape)
+        if torch.jit.is_scripting():
+            features = features.transpose(0, -1)
+            x = x.transpose(-1, 0)
+            x = x.transpose(-2, 1)
+            x = x + features
+            x = x.transpose(0, -1).transpose(1, -2)
+        else:
+            shape = x.shape
+            newshape = [shape[0], shape[1]] + [1 for _ in range(x.ndim - 2)]
+            x = x + features.view(*newshape)
 
         return x
+
+

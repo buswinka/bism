@@ -279,7 +279,7 @@ class RUNeT_3D(RUNeTND):
         )
 
 if __name__ == '__main__':
-    model = RUNeT_2D()
+    model = torch.jit.script(RUNeT_2D())
     x = torch.rand((1, 1, 100, 100))
     _ = model(x)
 

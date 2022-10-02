@@ -10,7 +10,7 @@ from bism.modules.upsample_layer import UpSampleLayer3D, UpSampleLayer2D
 
 from functools import partial
 
-
+# Scriptable!!!
 class UNeXTND(nn.Module):
     def __init__(self,
                  in_channels: Optional[int] = 1,
@@ -282,13 +282,11 @@ class UNeXT_2D(UNeXTND):
 
 
 if __name__=='__main__':
-    model = UNeXT_3D(depths=[1, 1, 1, 1, 1], dims=[1,2,3,4,5], out_channels=16)
-    print(model)
+    model = torch.jit.script(UNeXT_3D(depths=[1, 1, 1, 1, 1], dims=[1,2,3,4,5], out_channels=16))
     x = torch.rand((1,1,300,300,20))
     y = model(x)
 
-    model = UNeXT_2D(depths=[1, 1, 1, 1, 1], dims=[1,2,3,4,5], out_channels=16)
-    print(model)
+    model = torch.jit.script(UNeXT_2D(depths=[1, 1, 1, 1, 1], dims=[1,2,3,4,5], out_channels=16))
     x = torch.rand((1,1,300,300))
     y = model(x)
 

@@ -45,7 +45,6 @@ class Block3D(nn.Module):
 
         return x
 
-
 class Block2D(nn.Module):
     """
     Unet Block.
@@ -54,7 +53,7 @@ class Block2D(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, *,
                  kernel_size: int = 7,
                  dilation: int = 1,
-                 activation: Optional = None) -> None:
+                 activation: Optional[nn.Module] = None) -> None:
         super().__init__()
 
         kernel_size = (kernel_size,) * 2 if isinstance(kernel_size, int) else kernel_size

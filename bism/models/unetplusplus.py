@@ -262,10 +262,10 @@ class UNetPlusPlus_3D(UNetPlusPlusND):
         )
 
 if __name__ == '__main__':
-    model = UNetPlusPlus_3D(dims=[1,1,1,1], depths=[1,1,1,1], L=4)
+    model = torch.jit.script(UNetPlusPlus_3D(dims=[1,1,1,1], depths=[1,1,1,1], L=4))
     x = torch.rand(1,1,300,300,20)
     _ = model(x)
 
-    model = UNetPlusPlus_2D(dims=[1,1,1,1], depths=[1,1,1,1], L=4)
+    model = torch.jit.script(UNetPlusPlus_2D(dims=[1,1,1,1], depths=[1,1,1,1], L=4))
     x = torch.rand(1,1,300,300)
     _ = model(x)
