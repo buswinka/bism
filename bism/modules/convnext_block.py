@@ -18,14 +18,21 @@ class Block3D(nn.Module):
         layer_scale_init_value (float): Init value for Layer Scale. Default: 1e-6.
     """
 
-    def __init__(self, dim: int, drop_path: Optional[float] = 0.0, kernel_size: int = 7, dilation: int = 1,
-                 layer_scale_init_value: Optional[float] = 1e-2, activation: Optional = None) -> None:
+    def __init__(self,
+                 *,
+                 dim: int,
+                 drop_path: Optional[float] = 0.0,
+                 kernel_size: int = 7,
+                 dilation: int = 1,
+                 layer_scale_init_value: Optional[float] = 1e-2,
+                 activation: Optional = None) -> None:
         super().__init__()
 
-        kernel_size = (kernel_size, ) * 3 if isinstance(kernel_size, int) else kernel_size
+        kernel_size = (kernel_size,) * 3 if isinstance(kernel_size, int) else kernel_size
         padding = tuple([k // 2 for k in kernel_size])
 
-        self.dwconv = nn.Conv3d(dim, dim, kernel_size=kernel_size, padding=padding, groups=dim, dilation=dilation)  # depthwise conv
+        self.dwconv = nn.Conv3d(dim, dim, kernel_size=kernel_size, padding=padding, groups=dim,
+                                dilation=dilation)  # depthwise conv
         self.norm = LayerNorm(dim, eps=1e-6)
         self.pwconv1 = nn.Linear(dim, 4 * dim)  # pointwise/1x1 convs, implemented with linear layers
         self.act = activation() if activation else nn.GELU()
@@ -76,14 +83,21 @@ class Block2D(nn.Module):
         layer_scale_init_value (float): Init value for Layer Scale. Default: 1e-6.
     """
 
-    def __init__(self, dim: int, drop_path: Optional[float] = 0.0, kernel_size: int = 7, dilation: int = 1,
-                 layer_scale_init_value: Optional[float] = 1e-2, activation: Optional = None) -> None:
+    def __init__(self, *,
+                 dim: int,
+                 drop_path: Optional[float] = 0.0,
+                 kernel_size: int = 7,
+                 dilation: int = 1,
+                 layer_scale_init_value: Optional[float] = 1e-2,
+                 activation: Optional = None) -> None:
+
         super().__init__()
 
-        kernel_size = (kernel_size, ) * 2 if isinstance(kernel_size, int) else kernel_size
+        kernel_size = (kernel_size,) * 2 if isinstance(kernel_size, int) else kernel_size
         padding = tuple([k // 2 for k in kernel_size])
 
-        self.dwconv = nn.Conv2d(dim, dim, kernel_size=kernel_size, padding=padding, groups=dim, dilation=dilation)  # depthwise conv
+        self.dwconv = nn.Conv2d(dim, dim, kernel_size=kernel_size, padding=padding, groups=dim,
+                                dilation=dilation)  # depthwise conv
         self.norm = LayerNorm(dim, eps=1e-6)
         self.pwconv1 = nn.Linear(dim, 4 * dim)  # pointwise/1x1 convs, implemented with linear layers
         self.act = activation() if activation else nn.GELU()

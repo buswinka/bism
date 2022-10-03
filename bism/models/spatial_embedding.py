@@ -5,6 +5,7 @@ from typing import List, Union, Tuple
 
 class SpatialEmbedding(nn.Module):
     def __init__(self, backbone: nn.Module):
+        super(SpatialEmbedding, self).__init__()
 
         self.backbone = backbone
 

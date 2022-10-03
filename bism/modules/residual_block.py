@@ -1,3 +1,5 @@
+import warnings
+
 import torch
 from torch import Tensor
 import torch.nn as nn
@@ -27,17 +29,22 @@ class ResidualBlock2D(nn.Module):
     Residual Block: Adds 4 blocks into a squential module
     """
     def __init__(self,
+                 *,
                  dim: int,
                  kernel_size: Union[Tuple[int, int], int],
-                 *,
                  normalization: Optional[nn.Module] = partial(nn.BatchNorm2d, eps=1e-5),
-                 activation: Optional[nn.Module] = nn.ReLU):
+                 activation: Optional[nn.Module] = nn.ReLU,
+                 drop_path: Optional[float] = None,
+                 layer_scale_init_value: Optional[float] = None,
+                 ):
         super().__init__()
 
-        self.dim = dim
+        if drop_path is not None or layer_scale_init_value is not None:
+            warnings.warn('Drop Path or Layer Scaling is not supported. Values will be ignored')
+
+
         self.kernel_size: Tuple[int] = kernel_size if isinstance(kernel_size, tuple) else (kernel_size, ) * 2
         self.padding = tuple([ks // 2 for ks in self.kernel_size])
-
 
         self.norm = normalization(dim)
         self.conv = nn.Conv2d(in_channels=dim, out_channels=dim,
@@ -62,12 +69,17 @@ class ResidualBlock3D(nn.Module):
     Residual Block: Adds 4 blocks into a squential module
     """
     def __init__(self,
-                 dim: int,
-                 kernel_size: Union[Tuple[int, int, int], int],
                  *,
+                 dim: int,
+                 kernel_size: Union[Tuple[int, int], int],
                  normalization: Optional[nn.Module] = partial(nn.BatchNorm3d, eps=1e-5),
-                 activation: Optional[nn.Module] = nn.ReLU):
+                 activation: Optional[nn.Module] = nn.ReLU,
+                 drop_path: Optional[float] = None,
+                 layer_scale_init_value: Optional[float] = None,):
         super().__init__()
+
+        if drop_path is not None or layer_scale_init_value is not None:
+            warnings.warn('Drop Path or Layer Scaling is not supported. Values will be ignored')
 
         self.dim = dim
         self.kernel_size: Tuple[int] = kernel_size if isinstance(kernel_size, tuple) else (kernel_size, ) * 3

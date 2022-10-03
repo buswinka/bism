@@ -25,6 +25,8 @@ class UNetND(nn.Module):
                  dims: Optional[List[int]] = (32, 64, 128, 64, 32),  # [16, 32, 64, 32, 16],
                  depths: Optional[List[int]] = (2, 2, 2, 2, 2),  # [1, 2, 3, 2, 1],
                  kernel_size: Optional[Union[Tuple[int], int]] = 3,
+                 drop_path_rate: Optional[float] = None,
+                 layer_scale_init_value: Optional[float] = None,
                  activation: Optional[nn.Module] = nn.ReLU,
                  block: Optional[nn.Module] = Block2D,
                  concat_conv: Optional[nn.Module] = ConcatConv2D,
@@ -34,14 +36,24 @@ class UNetND(nn.Module):
                  name: Optional[str] = 'UNet'
                  ):
         """
-        Initialize the model with custom depth, and dimensions, kernel size, and activation function.
-        :param in_channels: int - Input channels
-        :param out_channels:  int - Output Channels
-        :param dims: Optional[List[int]] Number of filter channels for each block at each stage of the UNet
-        :param depths: Optional[List[int]] Number of repeating blocks at each level of the UNet
-        :param kernel_size: Optional[Union[Tuple[int], int]] Kernel size for each convolution in a UNet block
-        :param activation: Optional[nn.Module] Activation function for each block in the UNet
+
+        :param in_channels:
+        :param out_channels:
+        :param spatial_dim:
+        :param dims:
+        :param depths:
+        :param kernel_size:
+        :param drop_path_rate:
+        :param layer_scale_init_value:
+        :param activation:
+        :param block:
+        :param concat_conv:
+        :param upsample_layer:
+        :param normalization:
+        :param downsample:
+        :param name:
         """
+
         super(UNetND, self).__init__()
 
         assert len(depths) == len(dims), f'Number of depths should equal number of dims: {depths} != {dims}'
@@ -84,6 +96,12 @@ class UNetND(nn.Module):
         self.init_stage = convolution(in_channels, dims[0],
                                       kernel_size=(kernel_size,) * spatial_dim,
                                       padding=(kernel_size // 2,) * spatial_dim)
+
+        if drop_path_rate is not None:
+            warnings.warn(f'Drop path is not available for this model: {self._name}...')
+
+        if layer_scale_init_value is not None:
+            warnings.warn(f'layer scaling for computational blocks is not available for this model: {self._name}...')
 
         # ----------------- Downsample layers
         for i in range(len(dims) // 2):
@@ -185,6 +203,8 @@ class UNet_3D(UNetND):
                  depths: Optional[List[int]] = [2, 2, 2, 2, 2],
                  dims: Optional[List[int]] = [32, 64, 128, 64, 32],
                  kernel_size: Optional[int] = 7,
+                 drop_path_rate: Optional[float] = None,
+                 layer_scale_init_value: Optional[float] = None,
                  activation: Optional[nn.Module] = nn.GELU,
                  block: Optional[nn.Module] = Block3D,
                  concat_conv: Optional[nn.Module] = ConcatConv3D,
@@ -198,6 +218,8 @@ class UNet_3D(UNetND):
             spatial_dim=3,
             depths=depths,
             dims=dims,
+            drop_path_rate=drop_path_rate,
+            layer_scale_init_value=layer_scale_init_value,
             kernel_size=kernel_size,
             activation=activation,
             block=block,
@@ -217,6 +239,8 @@ class UNet_2D(UNetND):
                  depths: Optional[List[int]] = [2, 2, 2, 2, 2],
                  dims: Optional[List[int]] = [32, 64, 128, 64, 32],
                  kernel_size: Optional[int] = 7,
+                 drop_path_rate: Optional[float] = None,
+                 layer_scale_init_value: Optional[float] = None,
                  activation: Optional[nn.Module] = nn.GELU,
                  block: Optional[nn.Module] = Block2D,
                  concat_conv: Optional[nn.Module] = ConcatConv2D,
@@ -230,6 +254,8 @@ class UNet_2D(UNetND):
             spatial_dim=2,
             depths=depths,
             dims=dims,
+            drop_path_rate=drop_path_rate,
+            layer_scale_init_value=layer_scale_init_value,
             kernel_size=kernel_size,
             activation=activation,
             block=block,
