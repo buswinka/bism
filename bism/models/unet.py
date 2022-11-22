@@ -93,10 +93,6 @@ class UNetND(nn.Module):
 
         DownsampleBlock = downsample
 
-        self.init_stage = convolution(in_channels, dims[0],
-                                      kernel_size=(kernel_size,) * spatial_dim,
-                                      padding=(kernel_size // 2,) * spatial_dim)
-
         if drop_path_rate is not None:
             warnings.warn(f'Drop path is not available for this model: {self._name}...')
 

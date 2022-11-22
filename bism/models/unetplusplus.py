@@ -40,6 +40,7 @@ class UNetPlusPlusND(nn.Module):
         :param kernel_size: Optional[Union[Tuple[int], int]] Kernel size for each convolution in a UNet block
         :param activation: Optional[nn.Module] Activation function for each block in the UNet
         """
+
         super(UNetPlusPlusND, self).__init__()
 
         assert len(depths) == len(dims) == L, f'Number of depths should equal number of dims and layers: {depths} != {dims} != {L}'
@@ -70,8 +71,8 @@ class UNetPlusPlusND(nn.Module):
         ConcatConv: nn.Module = concat_conv
         UpSampleLayer: nn.Module = upsample_layer
 
-        self.in_conv = convolution(in_channels=in_channels, out_channels=dims[0], kernel_size=self.kernel_size, padding=(1,) * spatial_dim)
-        self.out_conv = convolution(in_channels=dims[0], out_channels=out_channels, kernel_size=self.kernel_size, padding=(1,) * spatial_dim)
+        self.in_conv = convolution(in_channels=in_channels, out_channels=dims[0], kernel_size=self.kernel_size, padding=(self.kernel_size//2,) * spatial_dim)
+        self.out_conv = convolution(in_channels=dims[0], out_channels=out_channels, kernel_size=self.kernel_size, padding=(self.kernel_size//2,) * spatial_dim)
 
         # All Computation Blocks indexed like a list of lists [L, I]
         self.blocks = nn.ModuleList()
@@ -267,8 +268,11 @@ class UNetPlusPlus_3D(UNetPlusPlusND):
 if __name__ == '__main__':
     model = torch.jit.script(UNetPlusPlus_3D(dims=[1,1,1,1], depths=[1,1,1,1], L=4))
     x = torch.rand(1,1,300,300,20)
-    _ = model(x)
+    y = model(x)
+    print(y.shape)
+
 
     model = torch.jit.script(UNetPlusPlus_2D(dims=[1,1,1,1], depths=[1,1,1,1], L=4))
     x = torch.rand(1,1,300,300)
-    _ = model(x)
+    y = model(x)
+    print(y.shape)

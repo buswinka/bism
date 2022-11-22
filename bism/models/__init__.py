@@ -1,1 +1,1 @@
-from load import get_constructor
+from bism.models.load import get_constructor

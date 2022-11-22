@@ -33,9 +33,9 @@ class LayerNorm(nn.Module):
     def layer_norm_channels_fist(x: Tensor, shape: Tuple[int], weight: Tensor, bias: Tensor, eps: float) -> Tensor:
         u = x.mean(1, keepdim=True)
         s = (x - u).pow(2).mean(1, keepdim=True)
-        x = (x - u) / torch.sqrt(s + eps)
+        # x = (x - u).div(torch.sqrt(s + eps))
 
-        new_shape = [1 for _ in range(x.ndim)]
-        new_shape[1] = -1
+        # new_shape = [1 for _ in range(x.ndim)]
+        # new_shape[1] = -1
 
-        return weight.reshape(new_shape) * x + bias.reshape(new_shape)
+        return weight.reshape((1, -1, 1, 1, 1)) * (x - u).div(torch.sqrt(s + eps)) + bias.reshape((1, -1, 1, 1, 1))
