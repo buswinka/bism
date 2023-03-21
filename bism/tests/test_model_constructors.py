@@ -1,15 +1,15 @@
 import pytest
 
-from bism.models.unet import UNet_2D, UNet_3D
-from bism.models.unext import UNeXT_2D, UNeXT_3D
-from bism.models.r_unet import RUNeT_2D, RUNeT_3D
-from bism.models.cellpose_net import CPnet_2D, CPnet_3D
+from bism.backends.unet import UNet_2D, UNet_3D
+from bism.backends.unext import UNeXT_2D, UNeXT_3D
+from bism.backends.r_unet import RUNeT_2D, RUNeT_3D
+from bism.backends.cellpose_net import CPnet_2D, CPnet_3D
 
 from bism.modules.runet_block import RBlock2D, RBlock3D
 from bism.modules.residual_block import ResidualBlock2D, ResidualBlock3D
 from bism.modules.convnext_block import Block2D, Block3D
 from bism.modules.unet_block import Block2D as UNetBlock2D, Block3D as UNetBlock3D
-from bism.models.unetplusplus import UNetPlusPlus_3D
+from bism.backends.unetplusplus import UNetPlusPlus_3D
 
 from bism.models.spatial_embedding import SpatialEmbedding
 

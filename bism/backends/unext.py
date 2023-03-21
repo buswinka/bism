@@ -192,6 +192,7 @@ class UNeXTND(nn.Module):
         :return: Output tensor of identical size as input
         :rtype: Tensor
         """
+
         x = self.init_stage(x)
 
         shapes: List[List[int]] = [x.shape]
@@ -315,6 +316,8 @@ class UNeXT_3D(UNeXTND):
             name=name
         )
 
+        
+
 
 class UNeXT_2D(UNeXTND):
     def __init__(self,
@@ -382,11 +385,13 @@ class UNeXT_2D(UNeXTND):
 
 
 if __name__=='__main__':
-    model = torch.jit.script(UNeXT_3D(depths=[1, 1, 1, 1, 1], dims=[1,2,3,4,5], out_channels=16))
-    x = torch.rand((1,1,300,300,20))
-    y = model(x)
+    print(torch.cuda.is_available())
+    # model = torch.compile(UNeXT_3D(depths=[1, 1, 1, 1, 1], dims=[1,2,3,4,5], out_channels=16).to('cuda:1'), backend='inductor')
 
-    model = torch.jit.script(UNeXT_2D(depths=[1, 1, 1, 1, 1], dims=[1,2,3,4,5], out_channels=16))
-    x = torch.rand((1,1,300,300))
-    y = model(x)
+    # x = torch.rand((1,1,300,300,20))
+    # y = model(x)
+
+    # model = torch.jit.script(UNeXT_2D(depths=[1, 1, 1, 1, 1], dims=[1,2,3,4,5], out_channels=16))
+    # x = torch.rand((1,1,300,300))
+    # y = model(x)
 

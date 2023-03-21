@@ -5,6 +5,12 @@ from typing import List, Union, Tuple
 
 class SpatialEmbedding(nn.Module):
     def __init__(self, backbone: nn.Module):
+        """
+        A model architecture for skoots-based spatial embeddings.
+
+        :param backbone:
+        :type backbone:
+        """
         super(SpatialEmbedding, self).__init__()
 
         self.backbone = backbone
