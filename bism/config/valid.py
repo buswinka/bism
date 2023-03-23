@@ -19,7 +19,8 @@ _valid_loss_functions = {
     'soft_cldice': bism.loss.cl_dice.soft_cldice,
     'tversky': bism.loss.tversky.tversky,
     'dice': bism.loss.dice.dice,
-    'jaccard': bism.loss.jaccard.jaccard
+    'jaccard': bism.loss.jaccard.jaccard,
+    'mse': torch.nn.MSELoss,
 
 }
 

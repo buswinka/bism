@@ -18,8 +18,6 @@ class dataset(Dataset):
     def __init__(self,
                  path: Union[List[str], str],
                  transforms: Optional[Transform] = lambda x: x,
-                 make_target: Optional[Callable] = lambda x: x,
-                 cache_output: bool = False,
                  pad_size: Optional[int] = 100,
                  device: Optional[str] = 'cpu',
                  sample_per_image: Optional[int] = 1):
@@ -88,21 +86,6 @@ class dataset(Dataset):
             self.masks.append(masks)
 
 
-            for i, (k, v) in enumerate(skeleton.items()):
-                if v.numel() == 0:
-                    raise ValueError(f'{f} instance label {k} has {v.numel()=}')
-
-            skeleton = {int(k): v for k, v in skeleton.items()}
-
-            for u in masks.unique():
-                if int(u) == 0: continue
-                assert int(u) in skeleton, f'{f}, {u}'
-
-            self.skeletons.append(skeleton)
-            self.baked_skeleton.append(None)
-
-            _ = self.__getitem__(0) # populate the cache for the first time
-
     def __len__(self) -> int:
         return len(self.image) * self.sample_per_image
 
@@ -113,14 +96,12 @@ class dataset(Dataset):
 
         with torch.no_grad():
             data_dict = {'image': self.image[item],
-                         'masks': self.masks[item],
-                         'skeletons': self.skeletons[item],
-                         'baked-skeleton': self.baked_skeleton[item]}
+                         'masks': self.masks[item]}
 
             # Transformation pipeline
             with torch.no_grad():
                 # cache should always have something in it...
-                self._output_cache.append(self.transforms(data_dict))  # Apply transforms and add to cache
+                data_dict = self.transforms(data_dict)  # Apply transforms and add to cache
 
         for k in data_dict:
             if isinstance(data_dict[k], torch.Tensor):
@@ -136,12 +117,11 @@ class dataset(Dataset):
         """
         self.image = [x.to(device) for x in self.image]
         self.masks = [x.to(device) for x in self.masks]
-        self.skeletons = [{k: v.to(device) for (k, v) in x.items()} for x in self.skeletons]
 
         return self
 
     def cuda(self):
-        self.to('cuda:0')
+        self.to('cuda:0', non_blocking=True)
         return self
 
     def cpu(self):
@@ -154,7 +134,6 @@ class dataset(Dataset):
         """
         self.image = [x.pin_memory() for x in self.image]
         self.masks = [x.pin_memory() for x in self.masks]
-        self.skeletons = [{k: v.pin_memory() for (k, v) in x.items()} for x in self.skeletons]
         return self
 
 
@@ -318,13 +297,6 @@ class MultiDataset(Dataset):
 def colate(data_dict: List[Dict[str, Tensor]]) -> Tuple[Tensor, List[Dict[str, Tensor]]]:
     images = torch.stack([dd.pop('image') for dd in data_dict], dim=0)
     masks = torch.stack([dd.pop('masks') for dd in data_dict], dim=0)
-    skele_masks = torch.stack([dd.pop('skele_masks') for dd in data_dict], dim=0)
-    baked = [dd.pop('baked-skeleton') for dd in data_dict]
 
-    if baked[0] is not None:
-        baked = torch.stack(baked, dim=0)
-
-    skeletons = [dd.pop('skeletons') for dd in data_dict]
-
-    return images, masks, skeletons, skele_masks, baked
+    return images, masks
 

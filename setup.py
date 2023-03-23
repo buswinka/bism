@@ -4,7 +4,7 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    description="Biomedical image segmentation models",
+    description="Biomedical Image Segmentation Models (BISM)",
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=setuptools.find_packages(),
@@ -12,5 +12,10 @@ setuptools.setup(
     install_requires=[
         'torch>=1.12.0',
         'torchvision>=0.13.0',
-    ]
+        'bism'
+    ],
+    entry_points={
+        'console_scripts': ['bism-train = bism.train.__main__:main',
+                            'bism-eval = bism.eval.__main__:main']
+    }
 )

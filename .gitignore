@@ -1,3 +1,8 @@
+test_config.yaml
+test_trained_model_files/
+runs/
+trained_model_files/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -127,3 +132,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+!/Configs/test_config.yaml
+!/test_trained_model_files/
+!/test_trained_model_files/

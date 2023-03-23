@@ -1,0 +1,22 @@
+TRAIN:
+  TARGET: 'lsd'
+  TRAIN_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/skoots-experiments/data/mitochondria/train/hide']
+  VALIDATION_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/skoots-experiments/data/mitochondria/validation/hide']
+  NUM_EPOCHS: 5000
+  SAVE_PATH: '/home/chris/Dropbox (Partners HealthCare)/bism/trained_model_files/lsd/mitochondria'
+  N_WARMUP: 100
+  SAVE_INTERVAL: 500
+  STORE_DATA_ON_GPU: True
+  TRAIN_BATCH_SIZE: 4
+  TRAIN_SAMPLE_PER_IMAGE: [32]
+  VALIDATION_BATCH_SIZE: 4
+  VALIDATION_SAMPLE_PER_IMAGE: [6]
+  SCHEDULER_T0: 5001
+
+MODEL:
+  OUT_CHANNELS: 10
+
+TARGET:
+  LSD:
+    SIGMA: (8,8,8)
+    VOXEL_SIZE: (1, 1, 4)

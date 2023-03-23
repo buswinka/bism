@@ -1,4 +1,3 @@
-import warnings
 from functools import partial
 from typing import List, Tuple, Callable, Union, OrderedDict, Optional, Dict
 import os.path
@@ -17,6 +16,12 @@ from tqdm import trange
 from statistics import mean
 from yacs.config import CfgNode
 
+from bism.utils.distributed import setup_process
+from bism.train.merged_transform import transform_from_cfg
+from bism.train.dataloader import dataset, MultiDataset, colate
+from bism.utils.visualization import write_progress
+from bism.targets import _valid_targets
+
 Dataset = Union[Dataset, DataLoader]
 
 from bism.config.valid import _valid_optimizers, _valid_loss_functions, _valid_lr_schedulers
@@ -24,6 +29,7 @@ from bism.config.valid import _valid_optimizers, _valid_loss_functions, _valid_l
 
 torch.manual_seed(101196)
 torch.set_float32_matmul_precision('high')
+
 
 def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: CfgNode):
     setup_process(rank, world_size, port, backend='nccl')
@@ -41,9 +47,8 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
 
     augmentations: Callable[[Dict[str, Tensor]], Dict[str, Tensor]] = partial(transform_from_cfg, cfg=cfg,
                                                                               device=device)
-    background_agumentations: Callable[[Dict[str, Tensor]], Dict[str, Tensor]] = partial(background_transform_from_cfg,
-                                                                                         cfg=cfg, device=device)
-    # Training Dataset - MultiDataset[Mitochondria, Background]
+
+    # INIT DATA ----------------------------
     _datasets = []
     for path, N in zip(cfg.TRAIN.TRAIN_DATA_DIR, cfg.TRAIN.TRAIN_SAMPLE_PER_IMAGE):
         _device = device if cfg.TRAIN.STORE_DATA_ON_GPU else 'cpu'
@@ -53,18 +58,12 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
                                  device=device,
                                  pad_size=10).to(_device))
 
-    for path, N in zip(cfg.TRAIN.BACKGROUND_DATA_DIR, cfg.TRAIN.BACKGROUND_SAMPLE_PER_IMAGE):
-        _device = device if cfg.TRAIN.STORE_DATA_ON_GPU else 'cpu'
-        _datasets.append(dataset(path=path,
-                                 transforms=background_agumentations, sample_per_image=N,
-                                 device=device,
-                                 pad_size=100).to(_device))
 
     merged_train = MultiDataset(*_datasets)
 
     train_sampler = torch.utils.data.distributed.DistributedSampler(merged_train)
     dataloader = DataLoader(merged_train, num_workers=0, batch_size=cfg.TRAIN.TRAIN_BATCH_SIZE,
-                            sampler=train_sampler, collate_fn=skeleton_colate)
+                            sampler=train_sampler, collate_fn=colate)
 
     # Validation Dataset
     _datasets = []
@@ -81,26 +80,23 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
     if _datasets or cfg.TRAIN.VALIDATION_BATCH_SIZE >= 1:
         valdiation_dataloader = DataLoader(merged_validation, num_workers=0, batch_size=cfg.TRAIN.VALIDATION_BATCH_SIZE,
                                            sampler=test_sampler,
-                                           collate_fn=skeleton_colate)
+                                           collate_fn=colate)
 
     else:  # we might not want to run validation...
         valdiation_dataloader = None
 
+    # INIT FROM CONFIG ----------------------------
     torch.backends.cudnn.benchmark = cfg.TRAIN.CUDNN_BENCHMARK
     torch.autograd.profiler.profile = cfg.TRAIN.AUTOGRAD_PROFILE
     torch.autograd.profiler.emit_nvtx(enabled=cfg.TRAIN.AUTOGRAD_EMIT_NVTX)
     torch.autograd.set_detect_anomaly(cfg.TRAIN.AUTOGRAD_DETECT_ANOMALY)
 
-    sigma: Sigma = init_sigma(cfg, device)
     epochs = cfg.TRAIN.NUM_EPOCHS
 
     writer = SummaryWriter() if rank == 0 else None
     if writer:
         print('SUMMARY WRITER LOG DIR: ', writer.get_logdir())
 
-    # TRAIN LOOP ----------------------------
-
-    num = torch.tensor(cfg.SKOOTS.VECTOR_SCALING, device=device)
 
     optimizer = _valid_optimizers[cfg.TRAIN.OPTIMIZER](model.parameters(),
                                                        lr=cfg.TRAIN.LEARNING_RATE,
@@ -110,29 +106,31 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
 
     swa_model = torch.optim.swa_utils.AveragedModel(model)
     swa_start = 100
-    swa_scheduler = torch.optim.swa_utils.SWALR(optimizer, swa_lr=0.05)
 
-    _kwarg = {k:v for k,v in zip(cfg.TRAIN.LOSS_AFFINITY_KEYWORDS, cfg.TRAIN.LOSS_AFFINITY_VALUES)}
-    loss_fn: Callable = _valid_loss_functions[cfg.TRAIN.LOSS_AFFINITY](**_kwarg)
+    _kwarg = {k:v for k, v in zip(cfg.TRAIN.LOSS_KEYWORDS, cfg.TRAIN.LOSS_VALUES)}
+    loss_fn: Callable = _valid_loss_functions[cfg.TRAIN.LOSS_FN](**_kwarg)
+
+    # this is basically a fn that takes an instance mask, and creates a tensor represnetation
+    # which is useful for segmentation. This might be a diffusion gradient (cellpose), distance map (omnipose),
+    # affinities (boundry segmentation) or local shape descriptors.
+    # Should always take a 5D tensor of instance masks (B, 1, X, Y, Z) and return a 5D Tensor (B, C, X, Y, Z)
+    # of targets to train a model against
+    target_fn: Callable[[Tensor], Tensor] = partial(_valid_targets[cfg.TRAIN.TARGET], cfg=cfg)
 
     # Save each loss value in a list...
     avg_epoch_loss = [-1]
     avg_val_loss = [-1]
 
-
-    # skel_crossover_loss = skoots.train.loss.split(n_iter=3, alpha=2)
-
-    # Warmup... Get the first from train_data
-    for images, _, target in dataloader:
+    # WARMUP LOOP ----------------------------
+    for images, masks in dataloader:
+        target: Tensor = target_fn(masks)  # makes the target we want
         pass
-    assert images is not None, len(dataloader)
-
 
     warmup_range = trange(cfg.TRAIN.N_WARMUP, desc='Warmup: {}')
     for w in warmup_range:
         optimizer.zero_grad(set_to_none=True)
-
         with autocast(enabled=cfg.TRAIN.MIXED_PRECISION):  # Saves Memory!
+
             out: Tensor = model(images)
             loss: Tensor = loss_fn(out, target)
 
@@ -142,15 +140,16 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
         scaler.step(optimizer)
         scaler.update()
 
-    # Train Step...
+    # TRAIN LOOP ----------------------------
     epoch_range = trange(epochs, desc=f'Loss = {1.0000000}') if rank == 0 else range(epochs)
     for e in epoch_range:
-        _loss  = [], [], [], []
+        _loss = []
 
         if cfg.TRAIN.DISTRIBUTED:
             train_sampler.set_epoch(e)
 
-        for images, target in dataloader:
+        for images, masks in dataloader:
+            target: Tensor = target_fn(masks)  # makes the target we want
             optimizer.zero_grad(set_to_none=True)
 
             with autocast(enabled=cfg.TRAIN.MIXED_PRECISION):  # Saves Memory!
@@ -165,9 +164,6 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
                 swa_model.update_parameters(model)
 
             _loss.append(loss.item())
-            _embed.append(_loss_embed.item())
-            _prob.append(_loss_prob.item())
-            _skele.append(_loss_skeleton.item())
 
         avg_epoch_loss.append(mean(_loss))
         scheduler.step()
@@ -176,38 +172,34 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
             writer.add_scalar('lr', scheduler.get_last_lr()[-1], e)
             writer.add_scalar('Loss/train', avg_epoch_loss[-1], e)
 
-            write_progress(writer=writer, tag='Train', epoch=e, images=images, masks=masks,
-                           probability_map=probability_map,
-                           vector=vector, out=out, skeleton=skeleton,
-                           predicted_skeleton=predicted_skeleton, gt_skeleton=skele_masks)
+            write_progress(writer=writer, tag='Train', cfg=cfg, epoch=e, images=images, masks=masks, target=target, out=out)
 
         # # Validation Step
         if e % 10 == 0 and valdiation_dataloader:
             _loss = []
-            for images, masks, skeleton, skele_masks, baked in valdiation_dataloader:
+            for images, masks in valdiation_dataloader:
+                target: Tensor = target_fn(masks)  # makes the target we want
+
                 with autocast(enabled=cfg.TRAIN.MIXED_PRECISION):  # Saves Memory!
                     with torch.no_grad():
                         out: Tensor = model(images)
                         loss = loss_fn(out, target)
-
 
                 scaler.scale(loss)
                 _loss.append(loss.item())
 
             avg_val_loss.append(mean(_loss))
 
-
             if writer and (rank == 0):
-                write_progress(writer=writer, tag='Validation', epoch=e, images=images, masks=masks,
-                               probability_map=probability_map,
-                               vector=vector, out=out, skeleton=skeleton,
-                               predicted_skeleton=predicted_skeleton, gt_skeleton=skele_masks)
+                write_progress(writer=writer, tag='Validation', cfg=cfg, epoch=e, images=images, masks=masks, target=target, out=out)
 
+        # now we write the loss to tqdm progress bar
         if rank == 0:
             epoch_range.desc = f'lr={scheduler.get_last_lr()[-1]:.3e}, Loss (train | val): ' + f'{avg_epoch_loss[-1]:.5f} | {avg_val_loss[-1]:.5f}'
 
+        # Save a state dict every so often
         state_dict = model.module.state_dict() if hasattr(model, 'module') else model.state_dict()
-        if e % 100 == 0:
+        if e % cfg.TRAIN.SAVE_INTERVAL == 0:
             torch.save(state_dict, cfg.TRAIN.SAVE_PATH + f'/test_{e}.trch')
 
     if rank == 0:
