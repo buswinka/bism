@@ -66,6 +66,9 @@ def eikonal_single_step(connected_components: Tensor) -> Tensor:
     """
     Returns the output of one iteration of an eikonal equation.
 
+    This could be a great kernel in triton... you could basically do everything in one 3x3 convolution.
+    That would be huge. Maybe a nice weekend project?
+
     Shapes:
         - connected_components: (B, C, N_components=9, X, Y) or (B, C, N_components=27, X, Y, Z)
         - returns: (B, C, X, Y) or (B, C, X, Y, Z)
@@ -175,7 +178,6 @@ def solve_eikonal(
             )  # Returns B, C, N, ...
 
         # T = T.div_(T.max())  # Does this induce numerical stability?
-        print(t, error)
         T0.copy_(T)
         t += 1
 
@@ -296,10 +298,20 @@ def omnipose(instance_mask: Tensor, cfg: CfgNode) -> Tensor:
         cfg.TARGET.OMNIPOSE.EPS,
         cfg.TARGET.OMNIPOSE.MIN_EIKONAL_STEPS,
     )
-    print(instance_mask.max(), instance_mask.min(), instance_mask.dtype)
-    print(distance.max(), distance.min())
+
     flows = gradient_from_eikonal(distance)
 
+    # Flows ∈ [0, ..., 1] but must be [-1, ..., 1] therefore we apply a logits
+
+    # no way a network can predict a tensor with value 1500, so we scale to 0->1
     distance.div_(distance.max())
+
+    torch.logit_(flows, 5e-3).clamp_(0, 5)  # clamp from -1 to 1 as per omnipose. They go -5 to 5... Idk if thats a good idea
+
+    background = torch.logical_not(semantic) * -5
+
+    # God bless broadcasting.
+    flows.mul_(semantic).add_(background) # zeros background, then adds -5 to only those.
+
 
     return torch.concat((distance, semantic, flows), dim=1)
