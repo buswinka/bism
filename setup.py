@@ -8,11 +8,18 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=setuptools.find_packages(),
-    python_requires='>=3.9',
+    python_requires='>=3.10',
     install_requires=[
-        'torch>=1.12.0',
+        'torch>=2.0.0',
         'torchvision>=0.13.0',
-        'bism'
+        'bism',
+        'fastremap',
+        'zarr',
+        'tqdm',
+        'scikit-image',
+        'yacs',
+        'tensorboard',
+
     ],
     entry_points={
         'console_scripts': ['bism-train = bism.train.__main__:main',

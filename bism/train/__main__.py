@@ -1,5 +1,6 @@
 import argparse
 import os.path
+from typing import *
 import sys
 import warnings
 
@@ -11,6 +12,7 @@ import torch.multiprocessing as mp
 
 from bism.utils.distributed import setup_process, cleanup, find_free_port
 from bism.train.default_engine import train
+from bism.train.aclsd_engine import train as aclsd_train
 from bism.models.construct import cfg_to_bism_model
 
 from yacs.config import CfgNode
@@ -40,18 +42,20 @@ def main():
     args = parser.parse_args()
 
     cfg = load_cfg_from_file(args)
-    model: nn.Module = cfg_to_bism_model(cfg)  # This is our skoots torch model
+    model: nn.Module | List[nn.Module] = cfg_to_bism_model(cfg)  # This is our skoots torch model
 
-    if cfg.TRAIN.PRETRAINED_MODEL_PATH:
+    if cfg.TRAIN.PRETRAINED_MODEL_PATH and not cfg.TRAIN.TARGET == 'aclsd':
         checkpoint = torch.load(cfg.TRAIN.PRETRAINED_MODEL_PATH[0])
         state_dict = checkpoint if not 'model_state_dict' in checkpoint else checkpoint['model_state_dict']
         model.load_state_dict(state_dict)
 
-
     port = find_free_port()
     world_size = cfg.SYSTEM.NUM_GPUS if cfg.TRAIN.DISTRIBUTED else 1
+    if cfg.TRAIN.TARGET not in ['aclsd']:
+        mp.spawn(train, args=(port, world_size, model, cfg), nprocs=world_size, join=True)
 
-    mp.spawn(train, args=(port, world_size, model, cfg), nprocs=world_size, join=True)
+    elif cfg.TRAIN.TARGET == 'aclsd':
+        mp.spawn(aclsd_train, args=(port, world_size, model, cfg), nprocs=world_size, join=True)
 
 
 

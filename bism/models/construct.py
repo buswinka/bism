@@ -84,7 +84,17 @@ def cfg_to_bism_model(cfg: CfgNode) -> nn.Module:
     else:
         raise RuntimeError(f'{cfg.MODEL.ARCHITECTURE} is not a valid model constructor, valid options are: {_valid_backbone_constructors.keys()}')
 
-    backbone = backbone(cfg.MODEL.IN_CHANNELS, cfg.MODEL.OUT_CHANNELS, **kwarg)
-    model = _valid_models[cfg.MODEL.MODEL](backbone)
+    if cfg.TRAIN.TARGET != 'aclsd':
+        backbone = backbone(cfg.MODEL.IN_CHANNELS, cfg.MODEL.OUT_CHANNELS, **kwarg)
+        model = _valid_models[cfg.MODEL.MODEL](backbone)
 
-    return model
+        return model
+
+    else:
+        lsd_backbone = backbone(cfg.MODEL.IN_CHANNELS, 10, **kwarg)
+        aff_backbone = backbone(10, 3, **kwarg)
+        lsd_model = _valid_models[cfg.MODEL.MODEL](lsd_backbone)
+        aff_model = _valid_models[cfg.MODEL.MODEL](aff_backbone)
+
+        return lsd_model, aff_model
+

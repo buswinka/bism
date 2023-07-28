@@ -126,19 +126,20 @@ class UNetPlusPlusND(nn.Module):
 
     @torch.jit.ignore()
     def forward(self, x: Tensor) -> Tensor:
-        """
+        r"""
         NOT SCRITPABLE! In theory you could make it scriptable but shenanigans with the nn.Module list
         make it unikely... maybe worth doing if speeds up considerably.
 
         Applies the UNet++ model to an input tensor. Assumes a UNet++ structure of:
 
-                  i =     0 1 2 3 4       --->      Schematized
-                 -------------------------   ------------------------
-          |C: 16 | in ->  ■ ■ ■ ■ ■ -> out |   in -> ■ ■ ■ ■ ■ -> out
-          |C: 32 |        ■ ■ ■ ■          |          ■ ■ ■ ■
-        l |C: 64 |        ■ ■ ■            |           ■ ■ ■
-          |C:128 |        ■ ■              |            ■ ■
-          |C:256 |        ■                |             ■
+        ::
+                      i =     0 1 2 3 4       --->      Schematized
+                     -------------------------   ------------------------
+              |C: 16 | in ->  ■ ■ ■ ■ ■ -> out |   in -> ■ ■ ■ ■ ■ -> out
+              |C: 32 |        ■ ■ ■ ■          |          ■ ■ ■ ■
+            l |C: 64 |        ■ ■ ■            |           ■ ■ ■
+              |C:128 |        ■ ■              |            ■ ■
+              |C:256 |        ■                |             ■
 
         Where *l* is the "Layer" and *i* is the "STAGE" and ■ is a convolutional "Block"
 

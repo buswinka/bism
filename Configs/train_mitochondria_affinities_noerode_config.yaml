@@ -1,11 +1,11 @@
 TRAIN:
-  TARGET: 'lsd'
+  TARGET: 'affinities'
   TRAIN_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/skoots-experiments/data/mitochondria/train/hide']
   VALIDATION_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/skoots-experiments/data/mitochondria/validation/hide']
   NUM_EPOCHS: 10000
-  SAVE_PATH: '/home/chris/Dropbox (Partners HealthCare)/bism/trained_model_files/lsd/mitochondria'
-  PRETRAINED_MODEL_PATH: ['/home/chris/Dropbox (Partners HealthCare)/bism/trained_model_files/lsd/mitochondria/Mar22_19-17-41_CHRISUBUNTU.trch']
-  N_WARMUP: 100
+  SAVE_PATH: '/home/chris/Dropbox (Partners HealthCare)/bism/trained_model_files/affinities/mitochondria'
+  PRETRAINED_MODEL_PATH: ['/home/chris/Dropbox (Partners HealthCare)/bism/trained_model_files/affinities/mitochondria/Mar21_18-37-00_CHRISUBUNTU.trch']
+  N_WARMUP: 10
   SAVE_INTERVAL: 500
   STORE_DATA_ON_GPU: True
   TRAIN_BATCH_SIZE: 4
@@ -14,10 +14,6 @@ TRAIN:
   VALIDATION_SAMPLE_PER_IMAGE: [6]
   SCHEDULER_T0: 10001
 
-MODEL:
-  OUT_CHANNELS: 10
-
 TARGET:
-  LSD:
-    SIGMA: (8,8,8)
-    VOXEL_SIZE: (1, 1, 4)
+    AFFINITIES:
+        N_ERODE: 0

@@ -1,0 +1,18 @@
+TRAIN:
+  TARGET: 'aclsd'
+  TRAIN_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/skoots-experiments/data/plant-root/train']
+  NUM_EPOCHS: 100
+  SAVE_PATH: '/home/chris/Dropbox (Partners HealthCare)/bism/trained_model_files/testing'
+  N_WARMUP: 10
+  SAVE_INTERVAL: 10000
+  STORE_DATA_ON_GPU: True
+  TRAIN_BATCH_SIZE: 1
+
+
+AUGMENTATION:
+  BRIGHTNESS_RATE: 0.0
+  FLIP_RATE: 0.
+  AFFINE_RATE: 0.0
+
+MODEL:
+  OUT_CHANNELS: 10

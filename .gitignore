@@ -2,6 +2,8 @@ test_config.yaml
 test_trained_model_files/
 runs/
 trained_model_files/
+fully_trained_tensorboard_runs/
+playground/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -135,3 +137,6 @@ dmypy.json
 !/Configs/test_config.yaml
 !/test_trained_model_files/
 !/test_trained_model_files/
+!/fully_trained_tensorboard_runs/
+/fully_trained_tensorboard_runs/
+/bism/playground/

@@ -14,7 +14,6 @@ _C.SYSTEM.NUM_GPUS = 2
 _C.SYSTEM.NUM_CPUS = 1
 
 
-
 # Define a BISM Model
 _C.MODEL = CN()
 _C.MODEL.BACKBONE = 'bism_unext'
@@ -40,6 +39,7 @@ _C.TRAIN.PRETRAINED_MODEL_PATH = []
 
 # Choose here what kind of training you want to do! Default is to predict 3D affinities
 _C.TRAIN.TARGET = 'affinities'  # 'lsd' also supported. 'cellpose' and 'omnipose' coming soon.
+
 
 # Loss function and their constructor keyowrds
 _C.TRAIN.LOSS_FN = 'mse'
@@ -96,6 +96,10 @@ _C.TARGET.AFFINITIES = CN()  # only influences bism.targets.affinities.py
 _C.TARGET.AFFINITIES.N_ERODE = 1
 _C.TARGET.AFFINITIES.PAD = 'replicate'  # either 'replicate' or None
 _C.TARGET.AFFINITIES.NHOOD = 1
+
+_C.TARGET.OMNIPOSE = CN()
+_C.TARGET.OMNIPOSE.EPS = 1e-5
+_C.TARGET.OMNIPOSE.MIN_EIKONAL_STEPS = 50
 
 
 def get_cfg_defaults():

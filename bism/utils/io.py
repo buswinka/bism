@@ -19,7 +19,7 @@ def imread(image_path: str,
     image: np.array = image.transpose(-1, 1, 2, 0)
     image: np.array = image[[2], ...] if image.shape[0] > 3 else image  # [C=1, X, Y, Z]
 
-    image: Tensor = torch.from_numpy(image.astype(np.int32))
+    image: Tensor = torch.from_numpy(image)
 
     if pin_memory:
         image: Tensor = image.pin_memory()

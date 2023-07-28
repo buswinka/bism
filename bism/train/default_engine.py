@@ -191,6 +191,7 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
             avg_val_loss.append(mean(_loss))
 
             if writer and (rank == 0):
+                writer.add_scalar('Loss/validate', avg_epoch_loss[-1], e)
                 write_progress(writer=writer, tag='Validation', cfg=cfg, epoch=e, images=images, masks=masks, target=target, out=out)
 
         # now we write the loss to tqdm progress bar
@@ -216,4 +217,4 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
             print(f'Could not save at: {cfg.TRAIN.SAVE_PATH}/{os.path.split(writer.log_dir)[-1]}.trch'
                   f'Saving at {os.getcwd()}/{os.path.split(writer.log_dir)[-1]}.trch instead')
 
-            torch.save(constants, f'{os.getcwd()}/{os.path.split(writer.log_dir)[-1]}.trch', )
+            torch.save(constants, f'{os.getcwd()}/{cfg.TRAIN.TARGET}_{os.path.split(writer.log_dir)[-1]}.trch', )

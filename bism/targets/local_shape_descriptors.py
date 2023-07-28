@@ -262,7 +262,7 @@ def lsd(instance_mask: Tensor, cfg: CfgNode):
 
     Shapes:
         - instance_mask: :math:`(B, C=1, X, Y, Z)`
-        - returns: :math:`(B, C=3, X, Y, Z)`
+        - returns: :math:`(B, C=10, X, Y, Z)`
 
     :param instance_mask: instance mask
     :param cfg: a configuration file defining a training experiment
