@@ -29,18 +29,8 @@ class omnipose_loss(nn.Module):
         predicted, ground_truth = crop_to_identical_size(predicted, ground_truth)
 
         # We'll just run dice on the semantic mask.
-        intersection = (predicted[0] * ground_truth[0]).sum().add(smooth)
-        denominator = (predicted[0] + ground_truth[0]).sum().add(smooth)
+        intersection = (predicted[:, 0, ...] * ground_truth[:, 0, ...]).sum().add(smooth)
+        denominator = (predicted[:, 0, ...] + ground_truth[:, 0, ...]).sum().add(smooth)
         loss = 1 - (2 * intersection / denominator)
-
-        print(f'{intersection.max()=}, {denominator.max()=}, {loss.max()=}')
-        print(f'{intersection.min()=}, {denominator.min()=}, {loss.min()=}')
-
-        for i in range(5):
-            print(f'Channel {i}: {predicted[:, i,...].max()}, {ground_truth[:, i, ...].max()}')
-            print(f'Channel {i}: {predicted[:, i,...].min()}, {ground_truth[:, i, ...].min()}')
-
-        print(self.mse_loss(predicted[:, 1::, ...], ground_truth[:, 1::, ...]))
-
 
         return loss + self.mse_loss(predicted[:, 1::, ...], ground_truth[:, 1::, ...])

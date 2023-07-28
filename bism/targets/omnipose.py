@@ -1,7 +1,6 @@
 from math import sqrt
 from typing import List
 
-import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
 from torch import Tensor
@@ -36,20 +35,18 @@ def _apply_update(minimum_paired: Tensor, f: float) -> Tensor:
 
     # Four necessary channels, remaining num are spatial dims...
     d: int = len(minimum_paired.shape) - 3
-
-    # sorting was the source of the small artifact bug
-    minimum_paired, _ = torch.sort(minimum_paired, dim=0)
-
-    # a = minimum_paired * ((minimum_paired - minimum_paired[-1, ...]) < f)
-
     a = minimum_paired * (torch.abs(minimum_paired - minimum_paired[-1, ...]) < f)
 
     sum_a = a.sum(dim=0)
-    sum_a2 = (a**2).sum(dim=0)
+    sum_a2 = (a ** 2).sum(dim=0)
 
     if d == 2:
+
+        # sorting was the source of the small artifact bug
+        minimum_paired, _ = torch.sort(minimum_paired, dim=0)
+
         out = sum_a + torch.sqrt(
-            torch.clamp((sum_a**2) - d * (sum_a2 - f**2), min=0)
+            torch.clamp((sum_a ** 2) - d * (sum_a2 - f ** 2), min=0)
         )
         out.div_(2)
 
@@ -57,17 +54,17 @@ def _apply_update(minimum_paired: Tensor, f: float) -> Tensor:
         out = 2 * sum_a + torch.sqrt(
             torch.clamp((4 * sum_a**2) - (12 * (sum_a2 - f**2)), min=0)
         )
-        out.div_(12)  # This scale term controls the numerical stability of this shit.
+        out.div_(6)  # This scale term controls the numerical stability of this shit.
 
     return out
-
 
 def eikonal_single_step(connected_components: Tensor) -> Tensor:
     """
     Returns the output of one iteration of an eikonal equation.
 
     This could be a great kernel in triton... you could basically do everything in one 3x3 convolution.
-    That would be huge. Maybe a nice weekend project?
+    That would be huge. Maybe a nice weekend project? It'd save an insane amount of memory. I dont think you
+    could effectively cache that data though, so it'd be shit efficient, but would save 30Gb of VRAM though.
 
     Shapes:
         - connected_components: (B, C, N_components=9, X, Y) or (B, C, N_components=27, X, Y, Z)
@@ -87,9 +84,9 @@ def eikonal_single_step(connected_components: Tensor) -> Tensor:
         factors: List[float] = [0.0, 1.0, sqrt(2), sqrt(3)]
         index_list: List[List[int]] = [
             [13],
-            [4, 10, 12, 14, 16, 22],
-            [1, 3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25],
-            [0, 2, 6, 8, 18, 20, 24, 26],
+            [4, 10, 12, 14, 16, 22], # cardinal axis might just be good enough...
+            # [1, 3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25],
+            # [0, 2, 6, 8, 18, 20, 24, 26],
         ]
     else:
         raise RuntimeError(
@@ -112,13 +109,12 @@ def eikonal_single_step(connected_components: Tensor) -> Tensor:
         )
         phi.mul_(_apply_update(minimum_paired, f))
 
-    phi = torch.pow(phi, 1 / (connected_components.ndim - 3))
+    # phi = torch.pow(phi, 1 / (connected_components.ndim - 3))
     return phi
-
 
 @torch.no_grad()
 def solve_eikonal(
-    instance_mask: Tensor, eps: float = 1e-3, min_steps: int = 51
+        instance_mask: Tensor, eps: float = 1e-3, min_steps: int = 51
 ) -> Tensor:
     """
     Solves the eikonal equation on a collection of instance masks. In practice, generates
@@ -181,12 +177,13 @@ def solve_eikonal(
         T0.copy_(T)
         t += 1
 
+        # print(t, error, T.max(), T.min(), torch.any(torch.isnan(T)))
+
         # plt.imshow(T[0, 0, 100, ...].cpu().numpy())
         # plt.title(f"Iteration" + str(t))
         # plt.show()
 
     return T
-
 
 def gradient_from_eikonal(eikonal: Tensor) -> Tensor:
     """
@@ -215,7 +212,7 @@ def gradient_from_eikonal(eikonal: Tensor) -> Tensor:
     # For the gradient calculation, we need to know if the adjacent pixels are above,
     # below, or next to the base pixel...
     vector_direction = torch.zeros(  # [9, 2] or [27, 3] array
-        (3**spatial_dim, spatial_dim), device=eikonal.device, dtype=torch.long
+        (3 ** spatial_dim, spatial_dim), device=eikonal.device, dtype=torch.long
     )
     ind = 0
     for k in (1, 0, -1) if spatial_dim == 3 else (0,):
@@ -248,7 +245,7 @@ def gradient_from_eikonal(eikonal: Tensor) -> Tensor:
 
     # Reshapes for 1D convolution.
     # New Shape -> [B, 9, X*Y] if 2D, [B, 27, X*Y*Z] if 3D
-    affinities = affinities.transpose(1, 2).reshape(shape[0], 3**spatial_dim, -1)
+    affinities = affinities.transpose(1, 2).reshape(shape[0], 3 ** spatial_dim, -1)
 
     for dim in range(spatial_dim):
         kernel: Tensor = (
@@ -260,7 +257,6 @@ def gradient_from_eikonal(eikonal: Tensor) -> Tensor:
         gradient.append(partial_gradient.reshape(shape[0], 1, *shape[2::]))
 
     return torch.concat(gradient, dim=1)
-
 
 @torch.no_grad()
 def omnipose(instance_mask: Tensor, cfg: CfgNode) -> Tensor:
@@ -275,6 +271,13 @@ def omnipose(instance_mask: Tensor, cfg: CfgNode) -> Tensor:
         - 3: X component of gradient
         - 4: Y component of gradient
         - 5: Z componenet of gradient
+
+    Things Ive done differently, because what was reported did not make sense.
+
+        - 1: replaced logits with tanh, because logits makes small numbers very negative, but not large numbers.
+        - 2: properly implemented a 3D eikonal update step.
+        - 3: made this all cuda compatiable
+        - 4:
 
 
     Configuration:
@@ -304,14 +307,22 @@ def omnipose(instance_mask: Tensor, cfg: CfgNode) -> Tensor:
     # Flows ∈ [0, ..., 1] but must be [-1, ..., 1] therefore we apply a logits
 
     # no way a network can predict a tensor with value 1500, so we scale to 0->1
-    distance.div_(distance.max())
+    assert torch.all(torch.logical_not(torch.isnan(distance))), "fuck distance"
+    distance.div_(distance.max() + 1e-8).clamp_(0, 1)
+    assert torch.all(torch.logical_not(torch.isnan(distance))), "kill me why distance"
 
-    torch.logit_(flows, 5e-3).clamp_(0, 5)  # clamp from -1 to 1 as per omnipose. They go -5 to 5... Idk if thats a good idea
-
-    background = torch.logical_not(semantic) * -5
+    torch.tanh_(flows)
+    background = torch.logical_not(semantic) * -1
 
     # God bless broadcasting.
-    flows.mul_(semantic).add_(background) # zeros background, then adds -5 to only those.
+    flows.mul_(semantic).add_(
+        background
+    )  # zeros background, then adds -5 to only those.
 
+    out = torch.concat((semantic, distance, flows), dim=1)
 
-    return torch.concat((distance, semantic, flows), dim=1)
+    # assert torch.all(torch.logical_not(torch.isnan(semantic))), "fuck"
+    # assert torch.all(torch.logical_not(torch.isnan(distance))), "fuck distance"
+    # assert torch.all(torch.logical_not(torch.isnan(flows))), "fuck flows"
+
+    return out

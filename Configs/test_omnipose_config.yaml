@@ -3,7 +3,7 @@ TRAIN:
   TRAIN_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/skoots-experiments/data/plant-root/train']
   NUM_EPOCHS: 100
   SAVE_PATH: '/home/chris/Dropbox (Partners HealthCare)/bism/trained_model_files/testing'
-  N_WARMUP: 10
+  N_WARMUP: 0
   SAVE_INTERVAL: 10000
   STORE_DATA_ON_GPU: True
   TRAIN_BATCH_SIZE: 1
