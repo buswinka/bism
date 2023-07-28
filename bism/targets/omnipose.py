@@ -1,9 +1,10 @@
 from math import sqrt
 from typing import List
 
+import matplotlib.pyplot as plt
 import torch
-from torch import Tensor
 import torch.nn.functional as F
+from torch import Tensor
 from yacs.config import CfgNode
 
 from bism.utils.morphology import binary_convolution
@@ -14,7 +15,14 @@ def _apply_update(minimum_paired: Tensor, f: float) -> Tensor:
     Partial Psi from one direction of connected components.
     Should only be called from eikonal_single_step.
 
-    Written by Kevin Cutler from Omnipose, adapted by Chris Buswinka.
+    Inspired by Kevin Cutler from Omnipose, adapted by Chris Buswinka.
+
+    Notable observations based on the paper https://arxiv.org/pdf/2106.15869.pdf
+    "Improved Fast Iterative Algoorithm for Eikonal Equation for GPU Computing" by Yuhao Huang, Aug 3 2021:
+        - 1; The authors of this paper report multiple different psi update steps based on the relationship of the axis pairs. I.e. if |a2 - a1| < δ,  do this... ELSE |a2 - a1| < -δ do that... This implementation of a solution (and original omnipose) to the eikonal function DOES NOT take into account these conditions.
+        - 2; The 2D implementation here, does not work for 3D -- the values explode. Rather, the 3D implementation must be added explicitly. You'd only notice this for big objects, something omnipose skirts around.
+        - 3; The values used from the 3D step implementation does not work, I had to bump the scaling term up to 12 (from 6)
+        - 4; The original algorithm does not check ordinal axes, and obviously omnipose works just fine, so maybe the point 1 exclusion was intentional.
 
     Shapes:
         - minimum_paired: (N_pairs, B, C, ...)
@@ -32,14 +40,24 @@ def _apply_update(minimum_paired: Tensor, f: float) -> Tensor:
     # sorting was the source of the small artifact bug
     minimum_paired, _ = torch.sort(minimum_paired, dim=0)
 
-    a = minimum_paired * ((minimum_paired - minimum_paired[-1, ...]) < f)
+    # a = minimum_paired * ((minimum_paired - minimum_paired[-1, ...]) < f)
+
+    a = minimum_paired * (torch.abs(minimum_paired - minimum_paired[-1, ...]) < f)
 
     sum_a = a.sum(dim=0)
     sum_a2 = (a**2).sum(dim=0)
 
-    out = (1 / d) * (
-        sum_a + torch.sqrt(torch.clamp((sum_a**2) - d * (sum_a2 - f**2), min=0))
-    )
+    if d == 2:
+        out = sum_a + torch.sqrt(
+            torch.clamp((sum_a**2) - d * (sum_a2 - f**2), min=0)
+        )
+        out.div_(2)
+
+    elif d == 3:  # 3D has a different update function.
+        out = 2 * sum_a + torch.sqrt(
+            torch.clamp((4 * sum_a**2) - (12 * (sum_a2 - f**2)), min=0)
+        )
+        out.div_(12)  # This scale term controls the numerical stability of this shit.
 
     return out
 
@@ -91,7 +109,7 @@ def eikonal_single_step(connected_components: Tensor) -> Tensor:
         )
         phi.mul_(_apply_update(minimum_paired, f))
 
-    phi = torch.pow(phi, 1 / 2)
+    phi = torch.pow(phi, 1 / (connected_components.ndim - 3))
     return phi
 
 
@@ -156,8 +174,14 @@ def solve_eikonal(
                 binary_convolution(T, "replicate").mul(affinity_mask).mean(2)
             )  # Returns B, C, N, ...
 
+        # T = T.div_(T.max())  # Does this induce numerical stability?
+        print(t, error)
         T0.copy_(T)
         t += 1
+
+        # plt.imshow(T[0, 0, 100, ...].cpu().numpy())
+        # plt.title(f"Iteration" + str(t))
+        # plt.show()
 
     return T
 
@@ -226,9 +250,7 @@ def gradient_from_eikonal(eikonal: Tensor) -> Tensor:
 
     for dim in range(spatial_dim):
         kernel: Tensor = (
-            vector_direction[:, dim]
-            .view(1, -1, 1)
-            .div(vector_magnitude.view(1, -1, 1))
+            vector_direction[:, dim].view(1, -1, 1).div(vector_magnitude.view(1, -1, 1))
         )
 
         partial_gradient = F.conv1d(affinities, kernel)
@@ -236,6 +258,7 @@ def gradient_from_eikonal(eikonal: Tensor) -> Tensor:
         gradient.append(partial_gradient.reshape(shape[0], 1, *shape[2::]))
 
     return torch.concat(gradient, dim=1)
+
 
 @torch.no_grad()
 def omnipose(instance_mask: Tensor, cfg: CfgNode) -> Tensor:
@@ -265,12 +288,16 @@ def omnipose(instance_mask: Tensor, cfg: CfgNode) -> Tensor:
     :return: target tensor, where channel 1 is distance field, and channel 2 is the semantic mask.
     """
 
-    assert instance_mask.ndim == 5
+    # assert instance_mask.ndim == 5
 
     semantic = instance_mask.gt(0)
     distance = solve_eikonal(
-        instance_mask.float(), cfg.TARGET.OMNIPOSE.EPS, cfg.TARGET.OMNIPOSE.MIN_EIKONAL_STEPS
+        instance_mask.float(),
+        cfg.TARGET.OMNIPOSE.EPS,
+        cfg.TARGET.OMNIPOSE.MIN_EIKONAL_STEPS,
     )
+    print(instance_mask.max(), instance_mask.min(), instance_mask.dtype)
+    print(distance.max(), distance.min())
     flows = gradient_from_eikonal(distance)
 
     distance.div_(distance.max())
