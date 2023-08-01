@@ -17,7 +17,7 @@ _C.SYSTEM.NUM_CPUS = 1
 # Define a BISM Model
 _C.MODEL = CN()
 _C.MODEL.BACKBONE = 'bism_unext'
-_C.MODEL.MODEL = 'lsd'
+_C.MODEL.MODEL = 'generic'
 _C.MODEL.IN_CHANNELS = 1
 _C.MODEL.OUT_CHANNELS = 3
 _C.MODEL.DIMS = [32, 64, 128, 64, 32]
@@ -31,6 +31,10 @@ _C.MODEL.CONCAT_BLOCK = 'concatconv3d'
 _C.MODEL.UPSAMPLE_BLOCK = 'upsamplelayer3d'
 _C.MODEL.NORMALIZATION ='layernorm'
 
+# A list of activations, one for each output channel
+# Only matters if model name is "generic"
+_C.MODEL.OUTPUT_ACTIVATIONS = [None]
+
 # Training Configurations
 _C.TRAIN = CN()
 _C.TRAIN.DISTRIBUTED = True
@@ -38,7 +42,8 @@ _C.TRAIN.PRETRAINED_MODEL_PATH = []
 
 
 # Choose here what kind of training you want to do! Default is to predict 3D affinities
-_C.TRAIN.TARGET = 'affinities'  # 'lsd' also supported. 'cellpose' and 'omnipose' coming soon.
+# Supported values are: affinities, aclsd, lsd, omnipose mtlsd
+_C.TRAIN.TARGET = 'affinities'
 
 
 # Loss function and their constructor keyowrds
@@ -99,7 +104,7 @@ _C.TARGET.AFFINITIES.NHOOD = 1
 
 _C.TARGET.OMNIPOSE = CN()
 _C.TARGET.OMNIPOSE.EPS = 1e-5
-_C.TARGET.OMNIPOSE.MIN_EIKONAL_STEPS = 50
+_C.TARGET.OMNIPOSE.MIN_EIKONAL_STEPS = 200  # effectivley the max diameter
 
 
 def get_cfg_defaults():

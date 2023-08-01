@@ -3,13 +3,222 @@ from typing import List
 
 import torch
 import torch.nn.functional as F
+import triton
+import triton.language as tl
 from torch import Tensor
 from yacs.config import CfgNode
 
 from bism.utils.morphology import binary_convolution
 
 
-def _apply_update(minimum_paired: Tensor, f: float) -> Tensor:
+@triton.jit
+def get_center_px(input, x0, y0, z0, x_stride, y_stride, z_stride):
+    return tl.load(input + (x0 * x_stride + y0 * y_stride + z0 * z_stride))
+
+
+@triton.jit
+def eikonal_3d_step_kernel(
+    # pointers to matricies
+    phi_ptr,
+    mask_ptr,
+    out_ptr,
+    # shape of matricies
+    x_shape,
+    y_shape,
+    z_shape,
+    # strides of matricies
+    x_stride,
+    y_stride,
+    z_stride,
+):
+    """
+    This is about the stupidest way you can do this, but it should be fast...
+
+    :param phi_ptr: pointer of previous step of eikonal iteration
+    :param mask_ptr: pointer of previous step of eikonal iteration
+    :param instance_mask_ptr: pointer of instance mask
+    :param out_ptr: tensor storing current step results
+    :param x_shape: shape of x dim
+    :param y_shape: shape of y dim
+    :param z_shape: shape of z dim
+    :param x_stride: stride of x dim
+    :param y_stride: stride of y dim
+    :param zstride: stride of z dim
+    :return: None. Does everything in place.
+    """
+    # padding
+    x0 = tl.program_id(axis=0) + 1
+    y0 = tl.program_id(axis=1) + 1
+    z0 = tl.program_id(axis=2) + 1
+
+    mask_center = get_center_px(mask_ptr, x0, y0, z0, x_stride, y_stride, z_stride)
+    if mask_center == 0:
+        return
+
+    # phi affinities
+    _phi_x0 = tl.load(phi_ptr + ((x0 - 1) * x_stride + y0 * y_stride + z0 * z_stride))
+    _phi_x1 = tl.load(phi_ptr + ((x0 + 1) * x_stride + y0 * y_stride + z0 * z_stride))
+    _phi_y0 = tl.load(phi_ptr + (x0 * x_stride + (y0 - 1) * y_stride + z0 * z_stride))
+    _phi_y1 = tl.load(phi_ptr + (x0 * x_stride + (y0 + 1) * y_stride + z0 * z_stride))
+    _phi_z0 = tl.load(phi_ptr + (x0 * x_stride + y0 * y_stride + (z0 - 1) * z_stride))
+    _phi_z1 = tl.load(phi_ptr + (x0 * x_stride + y0 * y_stride + (z0 + 1) * z_stride))
+
+    # mask affinities
+    _mask_x0 = tl.load(mask_ptr + ((x0 - 1) * x_stride + y0 * y_stride + z0 * z_stride))
+    _mask_x1 = tl.load(mask_ptr + ((x0 + 1) * x_stride + y0 * y_stride + z0 * z_stride))
+    _mask_y0 = tl.load(mask_ptr + (x0 * x_stride + (y0 - 1) * y_stride + z0 * z_stride))
+    _mask_y1 = tl.load(mask_ptr + (x0 * x_stride + (y0 + 1) * y_stride + z0 * z_stride))
+    _mask_z0 = tl.load(mask_ptr + (x0 * x_stride + y0 * y_stride + (z0 - 1) * z_stride))
+    _mask_z1 = tl.load(mask_ptr + (x0 * x_stride + y0 * y_stride + (z0 + 1) * z_stride))
+
+    # Zero out non adjacent pixels
+    if _mask_x0 != mask_center:
+        _phi_x0 = 0.0
+    if _mask_x1 != mask_center:
+        _phi_x1 = 0.0
+
+    if _mask_y0 != mask_center:
+        _phi_y0 = 0.0
+    if _mask_y1 != mask_center:
+        _phi_y1 = 0.0
+
+    if _mask_z0 != mask_center:
+        _phi_z0 = 0.0
+    if _mask_z1 != mask_center:
+        _phi_z1 = 0.0
+
+    minx = tl.minimum(_phi_x0, _phi_x1)
+    miny = tl.minimum(_phi_y0, _phi_y1)
+    minz = tl.minimum(_phi_z0, _phi_z1)
+
+    suma = minx + miny + minz
+
+    # sort into a1, a2, a3 where a1 < a2 < a3
+    a1 = tl.minimum(tl.minimum(minx, miny), minz)
+    a3 = tl.maximum(tl.maximum(minx, miny), minz)
+
+    a2 = suma - a1 + a3
+
+    # UPDATES
+    if tl.abs(a1 - a3) < 1:
+        suma2 = (a1 * a1) + (a2 * a2) + (a3 * a3)
+        next_step = ((2 * suma) + tl.sqrt((4 * suma * suma) - (12 * (suma2 - 1)))) / 6
+    elif tl.abs(a1 - a2) < 1:
+        next_step = (a1 + a2 + tl.sqrt(2 - ((a1 - a2) * (a1 - a2)))) / 2
+    else:
+        next_step = a1 + 1.0
+
+    tl.store(out_ptr + (x0 * x_stride + y0 * y_stride + z0 * z_stride), next_step)
+
+
+def update3d(phi: Tensor, instance_mask: Tensor) -> Tensor:
+    """
+    applies a single step update of the eikonal eq with a fused kernel.
+
+    Expects padding on either side. Probably just 1 on either.
+
+    Assumes f=1, and uses FIM.
+
+    :param phi: last step.
+    :return:
+    """
+
+    assert phi.ndim == 3, "may only be applied to tensor with shape of 3"
+    assert phi.is_cuda, "only works on cuda tensors"
+
+    x, y, z = phi.shape
+
+    phi = (
+        F.pad(
+            input=phi.unsqueeze(0).unsqueeze(0),
+            pad=(1, 1, 1, 1, 1, 1),
+            mode="replicate",
+        )
+        .squeeze()
+        .contiguous()
+    )
+    instance_mask = (
+        F.pad(
+            input=instance_mask.unsqueeze(0).unsqueeze(0),
+            pad=(1, 1, 1, 1, 1, 1),
+            mode="replicate",
+        )
+        .squeeze()
+        .contiguous()
+    )
+
+    output = torch.zeros_like(phi)
+
+    for i in range(phi.ndim):
+        assert phi.stride(i) == instance_mask.stride(i), "strides must be the same"
+
+    # grid = lambda META: (x, y, z)  # launch kernel for each px with 3D grid
+    # print(grid)
+    eikonal_3d_step_kernel[(x - 2, y - 2, z - 2)](
+        phi, instance_mask, output, x, y, z, phi.stride(0), phi.stride(1), phi.stride(2)
+    )
+
+    return output[1:-1:, 1:-1, 1:-1]
+
+
+def _update_3d(minimum_paired: Tensor, f: float) -> Tensor:
+    """
+    Partial Psi from one direction of connected components.
+    Should only be called from eikonal_single_step on a 3D image.
+
+    Inspired by Kevin Cutler from Omnipose, adapted by Chris Buswinka.
+
+    Notable observations based on the paper https://arxiv.org/pdf/2106.15869.pdf
+    "Improved Fast Iterative Algorithm for Eikonal Equation for GPU Computing" by Yuhao Huang, Aug 3 2021:
+        - 1; The authors of this paper report multiple different psi update steps based on the relationship of the axis pairs. I.e. if |a2 - a1| < δ,  do this... ELSE |a2 - a1| < -δ do that... This implementation of a solution (and original omnipose) to the eikonal function DOES NOT take into account these conditions.
+        - 2; The 2D implementation here, does not work for 3D -- the values explode. Rather, the 3D implementation must be added explicitly. You'd only notice this for big objects, something omnipose skirts around.
+        - 3; The values used from the 3D step implementation does not work, I had to bump the scaling term up to 12 (from 6)
+        - 4; The original algorithm does not check ordinal axes, and obviously omnipose works just fine, so maybe the point 1 exclusion was intentional.
+
+    Shapes:
+        - minimum_paired: (N_pairs, B, C, X, Y, Z)
+        - return (B, C, X, Y, Z)
+
+    :param minimum_paired: minimums from eikonal_single_step.
+    :param f: distance of pair from the central pixel
+
+    :return: partial psi for that neighborhood.
+    """
+    minimum_paired, _ = torch.sort(minimum_paired, dim=0)
+
+    a0 = minimum_paired[0, ...]
+    a1 = minimum_paired[1, ...]
+    a2 = minimum_paired[2, ...]
+
+    case0 = torch.abs(a0 - a2).lt(1)
+    case1 = torch.abs(a0 - a1).lt(1) * torch.logical_not(case0)
+    case2 = torch.logical_not(torch.logical_or(case0, case1))
+
+    out = torch.zeros_like(a0)
+
+    sum_a = minimum_paired.sum(dim=0)
+    sum_a2 = (minimum_paired**2).sum(dim=0)
+
+    # Case 0
+    out[case0] = (
+        2 * sum_a[case0]
+        + torch.sqrt((4 * sum_a[case0].pow(2)) - (12 * (sum_a2[case0] - 1 / (f**2))))
+    ).div(6)
+
+    # Case 1
+    out[case1] = (
+        a0[case1]
+        + a1[case1]
+        + torch.sqrt((2 / (f**2)) - (a0[case1] - a1[case1]) ** 2)
+    ).div(2)
+
+    # Case 2
+    out[case2] = a0[case2] + 1 / f
+
+    return out
+
+
+def _update_2d(minimum_paired: Tensor, f: float) -> Tensor:
     """
     Partial Psi from one direction of connected components.
     Should only be called from eikonal_single_step.
@@ -35,28 +244,18 @@ def _apply_update(minimum_paired: Tensor, f: float) -> Tensor:
 
     # Four necessary channels, remaining num are spatial dims...
     d: int = len(minimum_paired.shape) - 3
+    minimum_paired, _ = torch.sort(minimum_paired, dim=0)
+
     a = minimum_paired * (torch.abs(minimum_paired - minimum_paired[-1, ...]) < f)
-
     sum_a = a.sum(dim=0)
-    sum_a2 = (a ** 2).sum(dim=0)
+    sum_a2 = (a**2).sum(dim=0)
+    # sorting was the source of the small artifact bug
 
-    if d == 2:
-
-        # sorting was the source of the small artifact bug
-        minimum_paired, _ = torch.sort(minimum_paired, dim=0)
-
-        out = sum_a + torch.sqrt(
-            torch.clamp((sum_a ** 2) - d * (sum_a2 - f ** 2), min=0)
-        )
-        out.div_(2)
-
-    elif d == 3:  # 3D has a different update function.
-        out = 2 * sum_a + torch.sqrt(
-            torch.clamp((4 * sum_a**2) - (12 * (sum_a2 - f**2)), min=0)
-        )
-        out.div_(6)  # This scale term controls the numerical stability of this shit.
+    out = sum_a + torch.sqrt(torch.clamp((sum_a**2) - d * (sum_a2 - f**2), min=0))
+    out.div_(2)
 
     return out
+
 
 def eikonal_single_step(connected_components: Tensor) -> Tensor:
     """
@@ -66,6 +265,8 @@ def eikonal_single_step(connected_components: Tensor) -> Tensor:
     That would be huge. Maybe a nice weekend project? It'd save an insane amount of memory. I dont think you
     could effectively cache that data though, so it'd be shit efficient, but would save 30Gb of VRAM though.
 
+    YOU CANNOT RUN 3D IN ANY STABILITY WITH THE ALGORITHM AS IS...
+
     Shapes:
         - connected_components: (B, C, N_components=9, X, Y) or (B, C, N_components=27, X, Y, Z)
         - returns: (B, C, X, Y) or (B, C, X, Y, Z)
@@ -73,27 +274,27 @@ def eikonal_single_step(connected_components: Tensor) -> Tensor:
     :param connected_components: The connected components of the previous step of the eikonal update function.
     :return: the result of the next step of a solution to the eikonal equation.
     """
+    n_spatial_dims = connected_components.ndim - 3
 
     # The solution needs to understand which connected pixel of affinity graph are how far from the central pixel
     # Omnipose generalizes this to ND. I am not smart enough to do this.
-    if connected_components.ndim == 5:  # 2D
+    if n_spatial_dims == 2:  # 2D
         factors: List[float] = [0.0, 1.0, sqrt(2)]
         index_list: List[List[int]] = [[4], [1, 3, 5, 7], [0, 2, 6, 8]]
 
-    elif connected_components.ndim == 6:  # 3D
+    elif n_spatial_dims == 3:  # 3D
         factors: List[float] = [0.0, 1.0, sqrt(2), sqrt(3)]
-        index_list: List[List[int]] = [
+        index_list: List[List[int]] = [  # You can only check cardinal directions!
             [13],
-            [4, 10, 12, 14, 16, 22], # cardinal axis might just be good enough...
-            # [1, 3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25],
-            # [0, 2, 6, 8, 18, 20, 24, 26],
+            [4, 10, 12, 14, 16, 22],
         ]
     else:
         raise RuntimeError(
             f"Number of dimensions: {len(connected_components.shape) - 3} is not supported."
         )
 
-    phi = torch.ones_like(connected_components[:, :, 0, ...])
+    if n_spatial_dims == 2:
+        phi = torch.ones_like(connected_components[:, :, 0, ...])
 
     # find the minimum of each hypercube pair along each axis.
     for ind, f in zip(index_list[1:], factors[1:]):
@@ -107,14 +308,22 @@ def eikonal_single_step(connected_components: Tensor) -> Tensor:
                 for i in range(n_pair)
             ]
         )
-        phi.mul_(_apply_update(minimum_paired, f))
 
-    # phi = torch.pow(phi, 1 / (connected_components.ndim - 3))
+        phi = (
+            phi * _update_2d(minimum_paired, f)
+            if n_spatial_dims == 2
+            else _update_3d(minimum_paired, f)
+        )
+
+    # For 2D you can scale appropriately, not with omnipose...
+    phi = torch.pow(phi, 1 / (len(index_list) - 1)) if n_spatial_dims == 2 else phi
+
     return phi
+
 
 @torch.no_grad()
 def solve_eikonal(
-        instance_mask: Tensor, eps: float = 1e-3, min_steps: int = 51
+    instance_mask: Tensor, eps: float = 1e-3, min_steps: int = 200, use_triton: bool = True
 ) -> Tensor:
     """
     Solves the eikonal equation on a collection of instance masks. In practice, generates
@@ -140,8 +349,27 @@ def solve_eikonal(
     :param instance_mask: Input mask with instances denoted by integers and zero as background
     :param eps: Minimum tolerable error to eikonal function
     :param min_steps: Minimum number of iterations to solve eikonal function
+    :param use_triton: If true, uses a fused cuda kernel for eikonal solving 3D masks
     :return: Solution to eikonal function. Basically a fancy smooth distance map.
     """
+
+    if use_triton:
+        assert instance_mask.is_cuda, 'instance_mask must be a cuda tensor if use_triton=True'
+        assert instance_mask.shape[0] == 1, 'instance_mask must have a batch size of 1 if use_triton=True'
+        assert instance_mask.shape[1] == 1, 'instance_mask must have a channel size of 1 if use_triton=True'
+        assert instance_mask.dtype == torch.float32, 'instance_mask must be float32 if use_triton=True'
+
+        instance_mask = instance_mask.squeeze()
+        T = torch.ones_like(instance_mask) * instance_mask.gt(0)
+        error = float('inf')
+        t = 0
+        while error > eps and t < min_steps:  # Loop is a hard bottleneck...
+            T0 = update3d(T, instance_mask)
+            T = update3d(T0, instance_mask)
+            error = (T - T0).square().mean()
+        return T.unsqueeze(0).unsqueeze(0)
+
+
 
     # Get the values of adjacent pixels of the input image.
     # Returns a (B, C, N, X, Y, Z?) image where N=9 for a 2D image, and 27 for a 3D image.
@@ -152,7 +380,6 @@ def solve_eikonal(
 
     # Mask for removing updates to background pixels
     affinity_mask = affinity_mask.gt(0)
-    semantic_mask = instance_mask.gt(0)
 
     T, T0 = torch.ones_like(instance_mask), torch.ones_like(instance_mask)
 
@@ -164,26 +391,13 @@ def solve_eikonal(
             binary_convolution(T, "replicate") * affinity_mask
         )
 
-        T.mul_(semantic_mask)  # zero out background
-
         error = (T - T0).square().mean()
 
-        if t < 1:  # Omnipose includes smoothing at t=0.
-            T = (
-                binary_convolution(T, "replicate").mul(affinity_mask).mean(2)
-            )  # Returns B, C, N, ...
-
-        # T = T.div_(T.max())  # Does this induce numerical stability?
         T0.copy_(T)
         t += 1
 
-        # print(t, error, T.max(), T.min(), torch.any(torch.isnan(T)))
-
-        # plt.imshow(T[0, 0, 100, ...].cpu().numpy())
-        # plt.title(f"Iteration" + str(t))
-        # plt.show()
-
     return T
+
 
 def gradient_from_eikonal(eikonal: Tensor) -> Tensor:
     """
@@ -212,7 +426,7 @@ def gradient_from_eikonal(eikonal: Tensor) -> Tensor:
     # For the gradient calculation, we need to know if the adjacent pixels are above,
     # below, or next to the base pixel...
     vector_direction = torch.zeros(  # [9, 2] or [27, 3] array
-        (3 ** spatial_dim, spatial_dim), device=eikonal.device, dtype=torch.long
+        (3**spatial_dim, spatial_dim), device=eikonal.device, dtype=torch.long
     )
     ind = 0
     for k in (1, 0, -1) if spatial_dim == 3 else (0,):
@@ -245,7 +459,7 @@ def gradient_from_eikonal(eikonal: Tensor) -> Tensor:
 
     # Reshapes for 1D convolution.
     # New Shape -> [B, 9, X*Y] if 2D, [B, 27, X*Y*Z] if 3D
-    affinities = affinities.transpose(1, 2).reshape(shape[0], 3 ** spatial_dim, -1)
+    affinities = affinities.transpose(1, 2).reshape(shape[0], 3**spatial_dim, -1)
 
     for dim in range(spatial_dim):
         kernel: Tensor = (
@@ -257,6 +471,7 @@ def gradient_from_eikonal(eikonal: Tensor) -> Tensor:
         gradient.append(partial_gradient.reshape(shape[0], 1, *shape[2::]))
 
     return torch.concat(gradient, dim=1)
+
 
 @torch.no_grad()
 def omnipose(instance_mask: Tensor, cfg: CfgNode) -> Tensor:
@@ -301,6 +516,7 @@ def omnipose(instance_mask: Tensor, cfg: CfgNode) -> Tensor:
         cfg.TARGET.OMNIPOSE.EPS,
         cfg.TARGET.OMNIPOSE.MIN_EIKONAL_STEPS,
     )
+    print(distance.max())
 
     flows = gradient_from_eikonal(distance)
 

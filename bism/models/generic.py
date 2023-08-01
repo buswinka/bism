@@ -1,11 +1,11 @@
 import torch
 from torch import Tensor
 import torch.nn as nn
-from typing import List, Union, Tuple
+from typing import *
 
 
 class Generic(nn.Module):
-    def __init__(self, backbone: nn.Module, activations: List[nn.Module], channel_indicies: List[List[int]] = []):
+    def __init__(self, backbone: nn.Module, activations: List[nn.Module]):
         """
         A generic wrapper to a segmentation model. Often, it is desirable to have multiple activations
         be applied to different output channels. This wrapper allows a generic backend to have custom activations
@@ -15,15 +15,12 @@ class Generic(nn.Module):
         your own constructor for this.
 
         :param backbone: nn.Module from bism.backbone
-        :param activation: List[nn.Module]
-        :param channel_indicies: List[List[int]] of channels to apply each activation to.
+        :param activation: List[nn.Module] of a
         """
         super(Generic, self).__init__()
 
         self.backbone = backbone
-        self.channel_indicies = channel_indicies
-        self.activation = activations
-
+        self.activation: List[Callable[[Tensor], Tensor]] = activations
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -35,18 +32,26 @@ class Generic(nn.Module):
 
         x: Tensor = self.backbone(x)
 
-        for activation, ind in zip(self.activation, self.channel_indicies):
-            x[:, ind, ...] = activation(x[:, ind, ...])
+        for ind, activation in enumerate(self.activation):
+            if activation is not None:
+                x[:, ind, ...] = activation(x[:, ind, ...])
 
         return x
+
+        # outputs: List[Tensor] = []
+
+        # for ind, activation in enumerate(self.activation):
+        #     if activation is not None:
+        #         outputs.append(activation(x[:, [ind], ...]))
+        #
+        # return torch.concat(outputs, dim=1)
 
 
 if __name__=="__main__":
     x = torch.rand((1, 1, 100, 100, 10))
     backbone = nn.Conv3d(1, 3, 3, 1, 1)
     activations = [nn.ReLU(), nn.Sigmoid(), nn.Tanh()]
-    channel_inds = [[0], [1], [2]]
 
-    model = Generic(backbone=backbone, activations=activations, channel_indicies=channel_inds)
+    model = Generic(backbone=backbone, activations=activations)
 
     out = model(x)

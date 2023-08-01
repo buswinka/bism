@@ -1,14 +1,14 @@
 TRAIN:
   TARGET: 'omnipose'
-  TRAIN_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/skoots-experiments/data/plant-root/train']
+  TRAIN_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/skoots-experiments/data/plant-stem/train']
   NUM_EPOCHS: 100
   SAVE_PATH: '/home/chris/Dropbox (Partners HealthCare)/bism/trained_model_files/testing'
-  N_WARMUP: 0
+  N_WARMUP: 5
   SAVE_INTERVAL: 10000
+  SCHEDULER_T0: 1001
   STORE_DATA_ON_GPU: True
   TRAIN_BATCH_SIZE: 1
   LOSS_FN: 'omnipose'
-
 
 AUGMENTATION:
   BRIGHTNESS_RATE: 0.0
@@ -17,3 +17,5 @@ AUGMENTATION:
 
 MODEL:
   OUT_CHANNELS: 5
+  MODEL: 'generic'
+  OUTPUT_ACTIVATIONS: ['sigmoid', 'sigmoid', 'tanh', 'tanh', 'tanh']
