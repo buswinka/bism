@@ -273,9 +273,9 @@ class MultiDataset(Dataset):
         _offset = sum(self._dataset_lengths[:i])  # Ind offset
         try:
             return self.datasets[i][item - _offset]
-        except Exception:
+        except Exception as e:
             print(i, _offset, item - _offset, item, len(self.datasets[i]))
-            raise RuntimeError
+            raise e
 
     def to(self, device: str):
         for i in range(self.num_datasets):

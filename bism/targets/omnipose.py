@@ -17,7 +17,7 @@ def get_center_px(input, x0, y0, z0, x_stride, y_stride, z_stride):
 
 
 @triton.jit
-def eikonal_3d_step_kernel(
+def _eikonal_3d_step_kernel(
     # pointers to matricies
     phi_ptr,
     mask_ptr,
@@ -35,9 +35,8 @@ def eikonal_3d_step_kernel(
     This is about the stupidest way you can do this, but it should be fast...
 
     :param phi_ptr: pointer of previous step of eikonal iteration
-    :param mask_ptr: pointer of previous step of eikonal iteration
-    :param instance_mask_ptr: pointer of instance mask
-    :param out_ptr: tensor storing current step results
+    :param mask_ptr: pointer to instance mask with identical shape, and stride as phi
+    :param out_ptr: tensor storing current step results iwth identical shape and stride as phi
     :param x_shape: shape of x dim
     :param y_shape: shape of y dim
     :param z_shape: shape of z dim
@@ -47,60 +46,90 @@ def eikonal_3d_step_kernel(
     :return: None. Does everything in place.
     """
     # padding
-    x0 = tl.program_id(axis=0) + 1
-    y0 = tl.program_id(axis=1) + 1
-    z0 = tl.program_id(axis=2) + 1
+    x0 = tl.program_id(axis=0)
+    y0 = tl.program_id(axis=1)
+    z0 = tl.program_id(axis=2)
 
-    mask_center = get_center_px(mask_ptr, x0, y0, z0, x_stride, y_stride, z_stride)
+    mask_center = tl.load(mask_ptr + (x0 * x_stride + y0 * y_stride + z0 * z_stride))
     if mask_center == 0:
         return
 
-    # phi affinities
-    _phi_x0 = tl.load(phi_ptr + ((x0 - 1) * x_stride + y0 * y_stride + z0 * z_stride))
-    _phi_x1 = tl.load(phi_ptr + ((x0 + 1) * x_stride + y0 * y_stride + z0 * z_stride))
-    _phi_y0 = tl.load(phi_ptr + (x0 * x_stride + (y0 - 1) * y_stride + z0 * z_stride))
-    _phi_y1 = tl.load(phi_ptr + (x0 * x_stride + (y0 + 1) * y_stride + z0 * z_stride))
-    _phi_z0 = tl.load(phi_ptr + (x0 * x_stride + y0 * y_stride + (z0 - 1) * z_stride))
-    _phi_z1 = tl.load(phi_ptr + (x0 * x_stride + y0 * y_stride + (z0 + 1) * z_stride))
+    # phi affinities X with boundary checks
+    # if an affinity goes to a boundary, assign it as self
+    if x0 != 0:
+        _phi_x0 = tl.load(phi_ptr + ((x0 - 1) * x_stride + y0 * y_stride + z0 * z_stride))
+        _mask_x0 = tl.load(mask_ptr + ((x0 - 1) * x_stride + y0 * y_stride + z0 * z_stride))
+    else:
+        _phi_x0 = tl.load(phi_ptr + (x0 * x_stride + y0 * y_stride + z0 * z_stride))
+        _mask_x0 = tl.load(mask_ptr + (x0 * x_stride + y0 * y_stride + z0 * z_stride))
 
-    # mask affinities
-    _mask_x0 = tl.load(mask_ptr + ((x0 - 1) * x_stride + y0 * y_stride + z0 * z_stride))
-    _mask_x1 = tl.load(mask_ptr + ((x0 + 1) * x_stride + y0 * y_stride + z0 * z_stride))
-    _mask_y0 = tl.load(mask_ptr + (x0 * x_stride + (y0 - 1) * y_stride + z0 * z_stride))
-    _mask_y1 = tl.load(mask_ptr + (x0 * x_stride + (y0 + 1) * y_stride + z0 * z_stride))
-    _mask_z0 = tl.load(mask_ptr + (x0 * x_stride + y0 * y_stride + (z0 - 1) * z_stride))
-    _mask_z1 = tl.load(mask_ptr + (x0 * x_stride + y0 * y_stride + (z0 + 1) * z_stride))
+    if x0 + 1 != x_shape:
+        _phi_x1 = tl.load(phi_ptr + ((x0 + 1) * x_stride + y0 * y_stride + z0 * z_stride))
+        _mask_x1 = tl.load(mask_ptr + ((x0 + 1) * x_stride + y0 * y_stride + z0 * z_stride))
+    else:
+        _phi_x1 = tl.load(phi_ptr + (x0 * x_stride + y0 * y_stride + z0 * z_stride))
+        _mask_x1 = tl.load(mask_ptr + (x0 * x_stride + y0 * y_stride + z0 * z_stride))
+
+    # phi affinities Y
+    if y0 != 0:
+        _phi_y0 = tl.load(phi_ptr + x0 * x_stride + (y0-1) * y_stride + z0 * z_stride)
+        _mask_y0 = tl.load(mask_ptr + x0 * x_stride + (y0-1) * y_stride + z0 * z_stride)
+    else:
+        _phi_y0 = tl.load(phi_ptr + (x0 * x_stride + y0 * y_stride + z0 * z_stride))
+        _mask_y0 = tl.load(mask_ptr + (x0 * x_stride + y0 * y_stride + z0 * z_stride))
+
+    if y0 + 1 != y_shape:
+        _phi_y1 = tl.load(phi_ptr + x0 * x_stride + (y0+1) * y_stride + z0 * z_stride)
+        _mask_y1 = tl.load(mask_ptr + x0 * x_stride + (y0+1) * y_stride + z0 * z_stride)
+    else:
+        _phi_y1 = tl.load(phi_ptr + (x0 * x_stride + y0 * y_stride + z0 * z_stride))
+        _mask_y1 = tl.load(mask_ptr + (x0 * x_stride + y0 * y_stride + z0 * z_stride))
+
+    # phi affinities Z
+    if z0 != 0:
+        _phi_z0 = tl.load(phi_ptr + x0 * x_stride + y0 * y_stride + (z0-1) * z_stride)
+        _mask_z0 = tl.load(mask_ptr + x0 * x_stride + y0 * y_stride + (z0-1) * z_stride)
+    else:
+        _phi_z0 = tl.load(phi_ptr + (x0 * x_stride + y0 * y_stride + z0 * z_stride))
+        _mask_z0 = tl.load(mask_ptr + (x0 * x_stride + y0 * y_stride + z0 * z_stride))
+
+    if z0 + 1 != z_shape:
+        _phi_z1 = tl.load(phi_ptr + x0 * x_stride + y0 * y_stride + (z0+1) * z_stride)
+        _mask_z1 = tl.load(mask_ptr + x0 * x_stride + y0 * y_stride + (z0+1) * z_stride)
+    else:
+        _phi_z1 = tl.load(phi_ptr + (x0 * x_stride + y0 * y_stride + z0 * z_stride))
+        _mask_z1 = tl.load(mask_ptr + (x0 * x_stride + y0 * y_stride + z0 * z_stride))
+
 
     # Zero out non adjacent pixels
-    if _mask_x0 != mask_center:
+    if _mask_x0 != mask_center and x0 != 1:
         _phi_x0 = 0.0
-    if _mask_x1 != mask_center:
+    if _mask_x1 != mask_center and x0+1 != x_shape:
         _phi_x1 = 0.0
 
-    if _mask_y0 != mask_center:
+    if _mask_y0 != mask_center and y0 != 1:
         _phi_y0 = 0.0
-    if _mask_y1 != mask_center:
+    if _mask_y1 != mask_center and y0+1 != x_shape:
         _phi_y1 = 0.0
 
-    if _mask_z0 != mask_center:
+    if _mask_z0 != mask_center and z0 != 1:
         _phi_z0 = 0.0
-    if _mask_z1 != mask_center:
+    if _mask_z1 != mask_center and y0+1 != x_shape:
         _phi_z1 = 0.0
 
     minx = tl.minimum(_phi_x0, _phi_x1)
     miny = tl.minimum(_phi_y0, _phi_y1)
     minz = tl.minimum(_phi_z0, _phi_z1)
 
-    suma = minx + miny + minz
-
     # sort into a1, a2, a3 where a1 < a2 < a3
     a1 = tl.minimum(tl.minimum(minx, miny), minz)
     a3 = tl.maximum(tl.maximum(minx, miny), minz)
 
-    a2 = suma - a1 + a3
+    a2 = minx + miny + minz - (a1 + a3)
 
     # UPDATES
     if tl.abs(a1 - a3) < 1:
+        suma = a1 + a2 + a3
         suma2 = (a1 * a1) + (a2 * a2) + (a3 * a3)
         next_step = ((2 * suma) + tl.sqrt((4 * suma * suma) - (12 * (suma2 - 1)))) / 6
     elif tl.abs(a1 - a2) < 1:
@@ -113,9 +142,7 @@ def eikonal_3d_step_kernel(
 
 def update3d(phi: Tensor, instance_mask: Tensor) -> Tensor:
     """
-    applies a single step update of the eikonal eq with a fused kernel.
-
-    Expects padding on either side. Probably just 1 on either.
+    Applies a single step update of the eikonal eq with a fused kernel.
 
     Assumes f=1, and uses FIM.
 
@@ -125,42 +152,26 @@ def update3d(phi: Tensor, instance_mask: Tensor) -> Tensor:
 
     assert phi.ndim == 3, "may only be applied to tensor with shape of 3"
     assert phi.is_cuda, "only works on cuda tensors"
+    assert phi.device == instance_mask.device
 
-    x, y, z = phi.shape
+    with torch.cuda.device(phi.device):  # somehow fixes cuda:1 issue
+        x, y, z = phi.shape
 
-    phi = (
-        F.pad(
-            input=phi.unsqueeze(0).unsqueeze(0),
-            pad=(1, 1, 1, 1, 1, 1),
-            mode="replicate",
+        instance_mask = instance_mask.contiguous()
+        phi = phi.contiguous()
+
+        output = torch.zeros_like(phi)
+
+        for i in range(phi.ndim):
+            assert phi.stride(i) == instance_mask.stride(i), "strides must be the same"
+
+        # grid = lambda META: (x, y, z)  # launch kernel for each px with 3D grid
+        # print(grid)
+        _eikonal_3d_step_kernel[(x, y, z)](
+            phi, instance_mask, output, x, y, z, phi.stride(0), phi.stride(1), phi.stride(2)
         )
-        .squeeze()
-        .contiguous()
-    )
-    instance_mask = (
-        F.pad(
-            input=instance_mask.unsqueeze(0).unsqueeze(0),
-            pad=(1, 1, 1, 1, 1, 1),
-            mode="replicate",
-        )
-        .squeeze()
-        .contiguous()
-    )
 
-    output = torch.zeros_like(phi)
-
-    for i in range(phi.ndim):
-        assert phi.stride(i) == instance_mask.stride(i), "strides must be the same"
-
-    # grid = lambda META: (x, y, z)  # launch kernel for each px with 3D grid
-    # print(grid)
-    eikonal_3d_step_kernel[(x - 2, y - 2, z - 2)](
-        phi, instance_mask, output, x, y, z, phi.stride(0), phi.stride(1), phi.stride(2)
-    )
-
-    return output[1:-1:, 1:-1, 1:-1]
-
-
+    return output
 def _update_3d(minimum_paired: Tensor, f: float) -> Tensor:
     """
     Partial Psi from one direction of connected components.
@@ -353,23 +364,29 @@ def solve_eikonal(
     :return: Solution to eikonal function. Basically a fancy smooth distance map.
     """
 
+    assert instance_mask.ndim == 5, 'instance_mask must be a 5D tensor: [B, C, X, Y, Z]'
+
     if use_triton:
         assert instance_mask.is_cuda, 'instance_mask must be a cuda tensor if use_triton=True'
-        assert instance_mask.shape[0] == 1, 'instance_mask must have a batch size of 1 if use_triton=True'
+        # assert instance_mask.shape[0] == 1, 'instance_mask must have a batch size of 1 if use_triton=True'
         assert instance_mask.shape[1] == 1, 'instance_mask must have a channel size of 1 if use_triton=True'
         assert instance_mask.dtype == torch.float32, 'instance_mask must be float32 if use_triton=True'
 
-        instance_mask = instance_mask.squeeze()
-        T = torch.ones_like(instance_mask) * instance_mask.gt(0)
-        error = float('inf')
-        t = 0
-        while error > eps and t < min_steps:  # Loop is a hard bottleneck...
-            T0 = update3d(T, instance_mask)
-            T = update3d(T0, instance_mask)
-            error = (T - T0).square().mean()
-        return T.unsqueeze(0).unsqueeze(0)
-
-
+        out = []
+        for b in range(instance_mask.shape[0]):
+            _batch_mask = instance_mask[b, 0, ...]
+            T = torch.ones_like(_batch_mask) * _batch_mask.gt(0)
+            error = float('inf')
+            t = 0
+            while error > eps and t < min_steps:
+                T0 = update3d(T, _batch_mask)
+                T = update3d(T0, _batch_mask)
+                error = (T - T0).square().mean()
+                t += 1
+                if t > 500:
+                    raise RuntimeError('maximum iterations exceded')
+            out.append(T.unsqueeze(0).unsqueeze(0))
+        return torch.cat(out, dim=0)
 
     # Get the values of adjacent pixels of the input image.
     # Returns a (B, C, N, X, Y, Z?) image where N=9 for a 2D image, and 27 for a 3D image.
@@ -395,6 +412,8 @@ def solve_eikonal(
 
         T0.copy_(T)
         t += 1
+        if t > 500:
+            raise RuntimeError('maximum iterations exceded')
 
     return T
 
@@ -451,7 +470,7 @@ def gradient_from_eikonal(eikonal: Tensor) -> Tensor:
     # [B, C, N=9 or 27, 1, ...]
     affinities: Tensor = binary_convolution(eikonal, padding_mode="replicate")
 
-    affinities.sub_(eikonal)  # get difference...
+    affinities.sub_(eikonal.unsqueeze(1))  # get difference...
 
     shape: List[int] = list(eikonal.shape)
 
@@ -516,7 +535,6 @@ def omnipose(instance_mask: Tensor, cfg: CfgNode) -> Tensor:
         cfg.TARGET.OMNIPOSE.EPS,
         cfg.TARGET.OMNIPOSE.MIN_EIKONAL_STEPS,
     )
-    print(distance.max())
 
     flows = gradient_from_eikonal(distance)
 
@@ -524,7 +542,7 @@ def omnipose(instance_mask: Tensor, cfg: CfgNode) -> Tensor:
 
     # no way a network can predict a tensor with value 1500, so we scale to 0->1
     assert torch.all(torch.logical_not(torch.isnan(distance))), "fuck distance"
-    distance.div_(distance.max() + 1e-8).clamp_(0, 1)
+    distance.div_(cfg.TARGET.OMNIPOSE.MAX_DISTANCE + 1e-8).clamp_(min=0, max=1)
     assert torch.all(torch.logical_not(torch.isnan(distance))), "kill me why distance"
 
     torch.tanh_(flows)
@@ -536,6 +554,10 @@ def omnipose(instance_mask: Tensor, cfg: CfgNode) -> Tensor:
     )  # zeros background, then adds -5 to only those.
 
     out = torch.concat((semantic, distance, flows), dim=1)
+
+    # raise RuntimeError(
+    #     'stupid idea to normalize to the max. If there is one large object, itll all just be small'
+    # )
 
     # assert torch.all(torch.logical_not(torch.isnan(semantic))), "fuck"
     # assert torch.all(torch.logical_not(torch.isnan(distance))), "fuck distance"
