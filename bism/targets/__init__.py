@@ -3,6 +3,7 @@ from bism.targets.local_shape_descriptors import lsd
 from bism.targets.aclsd import aclsd
 from bism.targets.mtlsd import mtlsd
 from bism.targets.omnipose import omnipose
+from bism.targets.semantic import semantic
 
 _valid_targets = {
     'lsd': lsd,
@@ -10,4 +11,5 @@ _valid_targets = {
     'mtlsd': mtlsd,
     'aclsd': aclsd,
     'omnipose': omnipose,
+    'semantic': semantic
 }

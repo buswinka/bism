@@ -36,20 +36,26 @@ def _crop2d(img: Tensor, x: int, y: int, w: int, h: int) -> Tensor:
 
     return img[..., x:x + w, y:y + h]
 
-@torch.jit.script
 def crop_to_identical_size(a: Tensor, b: Tensor) -> Tuple[Tensor, Tensor]:
     """
     Crops Tensor a to the shape of Tensor b, then crops Tensor b to the shape of Tensor a.
 
-    :param a: torch.
+    :param a: torch.Tensor with ndim 5, or ndim 4
     :param b:
     :return:
     """
-    if a.ndim < 3:
+
+    if a.ndim != b.ndim: raise RuntimeError(f'Cannot crop two tensors of differing dimensions {a.shape=}, {b.shape=}')
+
+    if a.ndim == 5:
+        a = _crop3d(a, x=0, y=0, z=0, w=b.shape[-3], h=b.shape[-2], d=b.shape[-1])
+        b = _crop3d(b, x=0, y=0, z=0, w=a.shape[-3], h=a.shape[-2], d=a.shape[-1])
+    elif a.ndim == 4:
+        a = _crop3d(a, x=0, y=0, w=b.shape[-2], h=b.shape[-1])
+        b = _crop3d(b, x=0, y=0, w=a.shape[-2], h=a.shape[-1])
+    else:
         raise RuntimeError('Only supports tensors with minimum 3dimmensions and shape [..., X, Y, Z]')
 
-    a = _crop3d(a, x=0, y=0, z=0, w=b.shape[-3], h=b.shape[-2], d=b.shape[-1])
-    b = _crop3d(b, x=0, y=0, z=0, w=a.shape[-3], h=a.shape[-2], d=a.shape[-1])
     return a, b
 
 
@@ -62,9 +68,9 @@ def get_total_num_crops(image_shape: Tensor, crop_size: List[int], overlap: Opti
         # overlap[i] = overlap[i] if cropsize[i] < image_shape[i+1] else 0
 
     assert len(image_shape) - 1 == len(
-        crop_size) == len(overlap) == 3, f'Image Shape must equal the shape of the crop.\n{image.shape=}, {crop_size=}' \
+        crop_size) == len(overlap), f'Image Shape must equal the shape of the crop.\n{image_shape}, {crop_size=}' \
                                         f'{overlap=}'
-    dim = ['x', 'y', 'z']
+    dim = ['x', 'y', 'z'] if len(image_shape) == 3 else ['x', 'y']
     for c, o, d in zip(crop_size, overlap, dim):
         assert c - o*2 != 0, f'Overlap in {d} dimmension cannot be equal to or larger than crop size... {o*2=} < {c}'
 
@@ -76,13 +82,14 @@ def get_total_num_crops(image_shape: Tensor, crop_size: List[int], overlap: Opti
         while y < image_shape[2]:
             _y = y if y + crop_size[1] <= image_shape[2] else image_shape[2] - crop_size[1]
 
-            z = 0
-            while z < image_shape[3]:
-                _z = z if z + crop_size[2] <= image_shape[3] else image_shape[3] - crop_size[2]
-
+            if len(image_shape) == 4:
+                z = 0
+                while z < image_shape[3]:
+                    total += 1
+                    z += (crop_size[2] - (overlap[2] * 2))
+            else:
                 total += 1
 
-                z += (crop_size[2] - (overlap[2] * 2))
             y += (crop_size[1] - (overlap[1] * 2))
         x += (crop_size[0] - (overlap[0] * 2))
 
@@ -112,9 +119,10 @@ def crops(image: Tensor,
 
 
     assert len(image_shape) - 1 == len(
-        crop_size) == len(overlap) == 3, f'Image Shape must equal the shape of the crop.\n{image.shape=}, {crop_size=}' \
+        crop_size) == len(overlap), f'Image Shape must equal the shape of the crop.\n{image.shape=}, {crop_size=}' \
                                         f'{overlap=}'
-    dim = ['x', 'y', 'z']
+
+    dim = ['x', 'y', 'z'] if len(image_shape) == 3 else ['x', 'y']
     for c, o, d in zip(crop_size, overlap, dim):
         assert c - (o*2) != 0, f'Overlap in {d} dimmension cannot be equal to or larger than crop size... {c=} - {o*2=} = {c - (o*2)} < {c}'
 
@@ -128,13 +136,15 @@ def crops(image: Tensor,
         while y < image_shape[2]:
             _y = y if y + crop_size[1] <= image_shape[2] else image_shape[2] - crop_size[1]
 
-            z = 0
-            while z < image_shape[3]:
-                _z = z if z + crop_size[2] <= image_shape[3] else image_shape[3] - crop_size[2]
+            if len(image_shape) == 4:
+                z = 0
+                while z < image_shape[3]:
+                    _z = z if z + crop_size[2] <= image_shape[3] else image_shape[3] - crop_size[2]
 
-                yield image[:, _x:_x + crop_size[0], _y:_y + crop_size[1], _z:_z + crop_size[2]].unsqueeze(0), [_x, _y, _z]
+                    yield image[:, _x:_x + crop_size[0], _y:_y + crop_size[1], _z:_z + crop_size[2]].unsqueeze(0), [_x, _y, _z]
+                    z += (crop_size[2] - (overlap[2] * 2))
+            else:
+                yield image[:, _x:_x + crop_size[0], _y:_y + crop_size[1]].unsqueeze(0), [_x, _y]
 
-
-                z += (crop_size[2] - (overlap[2] * 2))
             y += (crop_size[1] - (overlap[1] * 2))
         x += (crop_size[0] - (overlap[0] * 2))

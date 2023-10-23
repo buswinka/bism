@@ -1,8 +1,6 @@
 TRAIN:
   TARGET: 'omnipose'
-  TRAIN_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/skoots-experiments/data/mitochondria/train/hide',
-
-  ]
+  TRAIN_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/skoots-experiments/data/mitochondria/train/hide']
   VALIDATION_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/skoots-experiments/data/mitochondria/validation/hide']
   NUM_EPOCHS: 2000
   SAVE_PATH: '/home/chris/Dropbox (Partners HealthCare)/bism/trained_model_files/testing'

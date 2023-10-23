@@ -26,6 +26,11 @@ def write_progress(
     :param out:
     :return:
     """
+    if images.ndim == 4:
+        images = images.unsqueeze(-1).repeat((1, 1, 1, 1, 8))
+        out = out.unsqueeze(-1).repeat((1, 1, 1, 1, 8))
+        target = target.unsqueeze(-1).repeat((1, 1, 1, 1, 8))
+        masks = masks.unsqueeze(-1).repeat((1, 1, 1, 1, 8))
 
     _a = images[0, [0, 0, 0], :, :, 7].cpu()
     _b = masks[0, [0, 0, 0], :, :, 7].gt(0.5).float().cpu()
@@ -34,12 +39,17 @@ def write_progress(
 
     c = target.shape[1]
 
-    if cfg is not None and cfg.TRAIN.TARGET in ["affinities", "mtlsd", "aclsd", "omnipose"]:
+    if cfg is not None and cfg.TRAIN.TARGET in [
+        "affinities",
+        "mtlsd",
+        "aclsd",
+        "omnipose",
+    ]:
         img_list.append(target[0, c - 3 : c, ..., 7].float().cpu())
         img_list.append(out[0, c - 3 : c, ..., 7].float().cpu())
         c -= 3
 
-    if cfg is not None and cfg.TRAIN.TARGET in ["lsd", "mtlsd", 'aclsd']:
+    if cfg is not None and cfg.TRAIN.TARGET in ["lsd", "mtlsd", "aclsd"]:
         img_list.append(target[0, 0:3, ..., 7].float().cpu())
         img_list.append(out[0, 0:3, ..., 7].float().cpu())
 

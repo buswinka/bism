@@ -42,11 +42,16 @@ def transform_from_cfg(data_dict: Dict[str, Tensor],
     masks = torch.clone(data_dict['masks'])
     image = torch.clone(data_dict['image'])
 
+    spatial_dims = masks.ndim - 1
+
+    masks = masks.unsqueeze(-1) if masks.ndim == 3 else masks
+    image = image.unsqueeze(-1) if image.ndim == 3 else image
+
     # ------------ Random Crop 1
     extra = 300
-    w = CROP_WIDTH + extra if CROP_WIDTH + extra <= image.shape[1] else torch.tensor(image.shape[1])
-    h = CROP_HEIGHT + extra if CROP_HEIGHT + extra <= image.shape[2] else torch.tensor(image.shape[2])
-    d = CROP_DEPTH if CROP_DEPTH <= image.shape[3] else torch.tensor(image.shape[3])
+    w = CROP_WIDTH + extra if CROP_WIDTH + extra <= image.shape[-3] else torch.tensor(image.shape[-3])
+    h = CROP_HEIGHT + extra if CROP_HEIGHT + extra <= image.shape[-3] else torch.tensor(image.shape[-2])
+    d = CROP_DEPTH if CROP_DEPTH <= image.shape[-1] else torch.tensor(image.shape[-1])
 
     # select a random point for croping
     x0 = torch.randint(0, image.shape[1] - w.item() + 1, (1,), device=DEVICE)
@@ -137,6 +142,10 @@ def transform_from_cfg(data_dict: Dict[str, Tensor],
         noise = torch.rand(image.shape, device=DEVICE) * NOISE_GAMMA
 
         image = image.add(noise).clamp(0, 1)
+
+    if spatial_dims == 2:
+        image = image[..., 0]
+        masks = masks[..., 0]
 
     data_dict['image'] = image
     data_dict['masks'] = masks

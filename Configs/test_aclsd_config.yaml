@@ -1,12 +1,18 @@
 TRAIN:
   TARGET: 'aclsd'
-  TRAIN_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/skoots-experiments/data/plant-root/train']
-  NUM_EPOCHS: 100
+  TRAIN_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/skoots-experiments/data/mitochondria/train/hide']
+  VALIDATION_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/skoots-experiments/data/mitochondria/validation/hide']
   SAVE_PATH: '/home/chris/Dropbox (Partners HealthCare)/bism/trained_model_files/testing'
-  N_WARMUP: 10
+  NUM_EPOCHS: 200
+  N_WARMUP: 50
   SAVE_INTERVAL: 10000
-  STORE_DATA_ON_GPU: True
-  TRAIN_BATCH_SIZE: 1
+  SCHEDULER_T0: 2001
+  STORE_DATA_ON_GPU: False
+  TRAIN_BATCH_SIZE: 4
+  TRAIN_SAMPLE_PER_IMAGE: [32]
+  VALIDATION_BATCH_SIZE: 4
+  VALIDATION_SAMPLE_PER_IMAGE: [6]
+
 
 
 AUGMENTATION:
@@ -16,3 +22,4 @@ AUGMENTATION:
 
 MODEL:
   OUT_CHANNELS: 10
+  MODEL: "lsd"

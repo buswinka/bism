@@ -192,8 +192,8 @@ class UNeXTND(nn.Module):
         :return: Output tensor of identical size as input
         :rtype: Tensor
         """
-
         x = self.init_stage(x)
+
 
         shapes: List[List[int]] = [x.shape]
         steps: List[Tensor] = [x]
@@ -210,6 +210,7 @@ class UNeXTND(nn.Module):
             x = down(x)
             x = norm(x)
             x = stage(x)
+
             shapes.append(x.shape)
 
         shapes.reverse()

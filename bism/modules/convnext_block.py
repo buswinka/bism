@@ -133,4 +133,6 @@ class Block2D(nn.Module):
         x = x.permute(0, 3, 1, 2)  # (B, H, W, C) -> (N, C, H, W)
 
         x = input + self.drop_path(x)
+
+
         return x

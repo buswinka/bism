@@ -9,7 +9,6 @@ _C = CN()
 # System
 # -----------------------------------------------------------------------------
 _C.SYSTEM = CN()
-
 _C.SYSTEM.NUM_GPUS = 2
 _C.SYSTEM.NUM_CPUS = 1
 
@@ -42,7 +41,7 @@ _C.TRAIN.PRETRAINED_MODEL_PATH = []
 
 
 # Choose here what kind of training you want to do! Default is to predict 3D affinities
-# Supported values are: affinities, aclsd, lsd, omnipose mtlsd
+# Supported values are: affinities, aclsd, lsd, omnipose mtlsd, semantic
 _C.TRAIN.TARGET = 'affinities'
 
 
@@ -107,6 +106,8 @@ _C.TARGET.OMNIPOSE.EPS = 1e-5
 _C.TARGET.OMNIPOSE.MIN_EIKONAL_STEPS = 200  # effectivley the max diameter
 _C.TARGET.OMNIPOSE.MAX_DISTANCE = 60
 
+_C.TARGET.SEMANTIC = CN()
+_C.TARGET.SEMANTIC.THR = 0.5
 
 def get_cfg_defaults():
     r"""Get a yacs CfgNode object with default values for my_project."""

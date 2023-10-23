@@ -8,12 +8,13 @@ from yacs.config import CfgNode
 
 import bism.eval.affinities
 import bism.eval.lsd
+import bism.eval.generic
 
 torch.set_float32_matmul_precision("high")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SKOOTS Training Parameters")
+    parser = argparse.ArgumentParser(description="BISM EVAL Parameters")
     parser.add_argument("--model_file", type=str, help="YAML config file for training")
     parser.add_argument("--image_path", type=str, help="Path to image")
     parser.add_argument(
@@ -49,8 +50,11 @@ def main():
         for f in files:
             bism.eval.affinities.eval(f, args.model_file)
 
-    if cfg.TRAIN.TARGET == "lsd":
+    elif cfg.TRAIN.TARGET == "lsd":
         bism.eval.lsd.eval(args.image_path, args.model_file)
+
+    else:
+        bism.eval.generic.eval(args.image_path, args.model_file)
 
 
 if __name__ == "__main__":

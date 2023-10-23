@@ -27,15 +27,18 @@ class LayerNorm(nn.Module):
         self.norm_functon = F.layer_norm if self.data_format == 'channels_last' else self.layer_norm_channels_fist
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.norm_functon(x, self.normalized_shape, self.weight, self.bias, self.eps)
-
+        out = self.norm_functon(x, self.normalized_shape, self.weight, self.bias, self.eps)
+        return out
     @staticmethod
     def layer_norm_channels_fist(x: Tensor, shape: Tuple[int], weight: Tensor, bias: Tensor, eps: float) -> Tensor:
+
+        spatial_dim = x.ndim - 2
+        reshape_indices = (1, -1, 1, 1, 1) if spatial_dim == 3 else (1, -1, 1, 1)
+
         u = x.mean(1, keepdim=True)
         s = (x - u).pow(2).mean(1, keepdim=True)
         # x = (x - u).div(torch.sqrt(s + eps))
 
         # new_shape = [1 for _ in range(x.ndim)]
         # new_shape[1] = -1
-
-        return weight.reshape((1, -1, 1, 1, 1)) * (x - u).div(torch.sqrt(s + eps)) + bias.reshape((1, -1, 1, 1, 1))
+        return weight.reshape(reshape_indices) * (x - u).div(torch.sqrt(s + eps)) + bias.reshape(reshape_indices)

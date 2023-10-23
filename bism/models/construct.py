@@ -17,13 +17,19 @@ def cfg_to_bism_model(cfg: CfgNode) -> nn.Module:
 
     _valid_backbone_constructors = {
         "bism_unext": bism.backends.unext.UNeXT_3D,
+        "bism_unext2d": bism.backends.unext.UNeXT_2D,
         "bism_unet": bism.backends.unet.UNet_3D,
+        "bism_unet2d": bism.backends.unet.UNet_2D,
     }
 
-    _valid_model_blocks = {"block3d": bism.modules.convnext_block.Block3D}
+    _valid_model_blocks = {
+        "block3d": bism.modules.convnext_block.Block3D,
+        "block2d": bism.modules.convnext_block.Block2D,
+    }
 
     _valid_upsample_layers = {
-        "upsamplelayer3d": bism.modules.upsample_layer.UpSampleLayer3D
+        "upsamplelayer3d": bism.modules.upsample_layer.UpSampleLayer3D,
+        "upsamplelayer2d": bism.modules.upsample_layer.UpSampleLayer2D
     }
 
     _valid_normalization = {
@@ -41,7 +47,10 @@ def cfg_to_bism_model(cfg: CfgNode) -> nn.Module:
         "sigmoid": torch.nn.Sigmoid,
     }
 
-    _valid_concat_blocks = {"concatconv3d": bism.modules.concat.ConcatConv3D}
+    _valid_concat_blocks = {
+        "concatconv3d": bism.modules.concat.ConcatConv3D,
+        "concatconv2d": bism.modules.concat.ConcatConv2D
+    }
 
     _valid_models = {
         "spatial_embedding": SpatialEmbedding,
@@ -128,6 +137,7 @@ def cfg_to_bism_model(cfg: CfgNode) -> nn.Module:
     else:
         lsd_backbone = backbone(cfg.MODEL.IN_CHANNELS, 10, **kwarg)
         aff_backbone = backbone(10, 3, **kwarg)
+        print('cfg.MODEL.MODEL')
         lsd_model = _valid_models[cfg.MODEL.MODEL](lsd_backbone)
         aff_model = _valid_models[cfg.MODEL.MODEL](aff_backbone)
 

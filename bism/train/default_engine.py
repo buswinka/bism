@@ -38,12 +38,13 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
     base_model = base_model.to(device)
     base_model = torch.nn.parallel.DistributedDataParallel(base_model)
 
-    if int(torch.__version__[0]) >= 2:
-        print('Comiled with Inductor')
-        model = torch.compile(base_model)
-    else:
-        model = torch.jit.script(base_model)
-
+    # if int(torch.__version__[0]) >= 2:
+    #     print('Comiled with Inductor')
+    #     model = torch.compile(base_model)
+    # else:
+    #     model = torch.jit.script(base_model)
+    #
+    model = base_model
 
     augmentations: Callable[[Dict[str, Tensor]], Dict[str, Tensor]] = partial(transform_from_cfg, cfg=cfg,
                                                                               device=device)

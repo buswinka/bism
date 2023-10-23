@@ -273,7 +273,7 @@ def train(rank: str, port: str, world_size: int, base_model: Tuple[nn.Module, nn
             for images, masks in dataloader:
                 lsd_target, aff_target = target_fn(masks)  # makes the target we want
 
-                with autocast(enabled=cfg.TRAIN.MIXED_PRECISION) and torch.no_grad:  # Saves Memory!
+                with autocast(enabled=cfg.TRAIN.MIXED_PRECISION) and torch.no_grad():  # Saves Memory!
                     lsd: Tensor = lsd_model(images)
                     lsd_loss: Tensor = loss_fn(lsd, lsd_target)
 

@@ -64,14 +64,20 @@ class dataset(Dataset):
             skeleton = torch.load(f[:-11:] + '.skeletons.trch') if os.path.exists(
                 f[:-11:] + '.skeletons.trch') else {-1: torch.tensor([])}
 
-            image: np.array = io.imread(image_path)  # [Z, X, Y, C]
-            masks: np.array = io.imread(f)  # [Z, X, Y]
+            image: np.array = io.imread(image_path)  # [Z, X, Y, C] or [X, Y, C]
+            masks: np.array = io.imread(f)  # [Z, X, Y] or [X, Y]
 
-            image: np.array = image[..., np.newaxis] if image.ndim == 3 else image
-            image: np.array = image.transpose(-1, 1, 2, 0)
-            image: np.array = image[[2], ...] if image.shape[0] > 3 else image
+            # we need to guess if its a 3d data operation, or 2d...
+            if min(image.shape) <= 4:  # probably a 2d color image
+                image: np.array = image[..., np.newaxis] if image.ndim == 2 else image
+                image: np.array = image.transpose(-1, 0, 1)
 
-            masks: np.array = masks.transpose(1, 2, 0).astype(np.int32)
+            else:
+                image: np.array = image[..., np.newaxis] if image.ndim == 3 else image
+                image: np.array = image.transpose(-1, 1, 2, 0)
+                image: np.array = image[[2], ...] if image.shape[0] > 3 else image
+
+                masks: np.array = masks.transpose(1, 2, 0).astype(np.int32)
 
             scale: int = 2 ** 16 if image.max() > 256 else 255  # Our images might be 16 bit, or 8 bit
             scale = scale if image.max() > 1 else 1.

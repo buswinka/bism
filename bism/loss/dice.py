@@ -14,10 +14,10 @@ class dice(nn.Module):
         """
         Returns dice index of two torch.Tensors
 
-        :param predicted: [B, I, X, Y, Z] torch.Tensor
+        :param predicted: [ ... ] torch.Tensor
                 - probabilities calculated from hcat.utils.embedding_to_probability
                   where B: is batch size, I: instances in image
-        :param ground_truth: [B, I, X, Y, Z] torch.Tensor
+        :param ground_truth: [ ... ] torch.Tensor
                 - segmentation mask for each instance (I).
         :param smooth: float
                 - Very small number to ensure numerical stability. Default 1e-10

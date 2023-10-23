@@ -5,7 +5,7 @@ from torch import Tensor
 from typing import Optional
 
 def imread(image_path: str,
-           pin_memory: Optional[bool] = False) -> Tensor:
+           pin_memory: Optional[bool] = False, ndim=3) -> Tensor:
     """
     Imports an image from file and returns in torch format
 
@@ -15,11 +15,15 @@ def imread(image_path: str,
     """
 
     image: np.array = io.imread(image_path)  # [Z, X, Y, C]
-    image: np.array = image[..., np.newaxis] if image.ndim == 3 else image
-    image: np.array = image.transpose(-1, 1, 2, 0)
-    image: np.array = image[[2], ...] if image.shape[0] > 3 else image  # [C=1, X, Y, Z]
+    if ndim==3:
+        image: np.array = image[..., np.newaxis] if image.ndim == 3 else image
+        image: np.array = image.transpose(-1, 1, 2, 0)
+        image: np.array = image[[2], ...] if image.shape[0] > 3 else image  # [C=1, X, Y, Z]
 
-    image: Tensor = torch.from_numpy(image)
+        image: Tensor = torch.from_numpy(image)
+    else:
+        image: np.array = image.transpose(-1, 0, 1)
+        image: Tensor = torch.from_numpy(image)
 
     if pin_memory:
         image: Tensor = image.pin_memory()
