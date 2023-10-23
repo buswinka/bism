@@ -1,0 +1,24 @@
+TRAIN:
+  TARGET: 'semantic'
+  TRAIN_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/bism/data/Richard Goodyear/Smaller images for training/Images',
+  '/home/chris/Dropbox (Partners HealthCare)/bism/data/Richard Goodyear/Large Image for training/updated format for chris']
+  VALIDATION_DATA_DIR: []
+  SAVE_PATH: '/home/chris/Dropbox (Partners HealthCare)/bism/trained_model_files/testing'
+  NUM_EPOCHS: 5000
+  N_WARMUP: 50
+  SAVE_INTERVAL: 10000
+  SCHEDULER_T0: 2001
+  STORE_DATA_ON_GPU: True
+  TRAIN_BATCH_SIZE: 8
+  TRAIN_SAMPLE_PER_IMAGE: [8, 32]
+  VALIDATION_BATCH_SIZE: 8
+  VALIDATION_SAMPLE_PER_IMAGE: [8]
+
+MODEL:
+  BACKBONE: 'bism_unext2d'
+  IN_CHANNELS: 3
+  OUT_CHANNELS: 1
+  MODEL: "generic"
+  BLOCK: 'block2d'
+  CONCAT_BLOCK: 'concatconv2d'
+  UPSAMPLE_BLOCK: 'upsamplelayer2d'

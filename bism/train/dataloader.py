@@ -68,9 +68,10 @@ class dataset(Dataset):
             masks: np.array = io.imread(f)  # [Z, X, Y] or [X, Y]
 
             # we need to guess if its a 3d data operation, or 2d...
-            if min(image.shape) <= 4:  # probably a 2d color image
+            if min(image.shape) <= 4 or image.ndim == 2:  # probably a 2d color image
                 image: np.array = image[..., np.newaxis] if image.ndim == 2 else image
                 image: np.array = image.transpose(-1, 0, 1)
+                print(image.shape)
 
             else:
                 image: np.array = image[..., np.newaxis] if image.ndim == 3 else image

@@ -6,17 +6,14 @@ import os.path
 import torch
 from yacs.config import CfgNode
 
-import bism.eval.affinities
-import bism.eval.lsd
-import bism.eval.generic
 
 torch.set_float32_matmul_precision("high")
 
 
 def main():
     parser = argparse.ArgumentParser(description="BISM EVAL Parameters")
-    parser.add_argument("--model_file", type=str, help="YAML config file for training")
-    parser.add_argument("--image_path", type=str, help="Path to image")
+    parser.add_argument("-m", "--model_file", type=str, help="YAML config file for training")
+    parser.add_argument("-i", "--image_path", type=str, help="Path to image")
     parser.add_argument(
         "--log",
         type=int,
@@ -42,6 +39,7 @@ def main():
     cfg: CfgNode = torch.load(args.model_file, map_location="cpu")["cfg"]
 
     if cfg.TRAIN.TARGET == "affinities":
+        import bism.eval.affinities # do it this way because waterz is a nightmare
         if os.path.isdir(args.image_path):
             files = glob.glob(args.image_path + "/*.tif")
             files.sort()
@@ -51,9 +49,11 @@ def main():
             bism.eval.affinities.eval(f, args.model_file)
 
     elif cfg.TRAIN.TARGET == "lsd":
+        import bism.eval.lsd
         bism.eval.lsd.eval(args.image_path, args.model_file)
 
     else:
+        import bism.eval.generic
         bism.eval.generic.eval(args.image_path, args.model_file)
 
 

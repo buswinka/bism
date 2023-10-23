@@ -92,7 +92,7 @@ def eval(image_path: str, model_file: str):
 
 
 
-    logging.info(f'Saving LSDs to: {filename_without_extensions}_lsd_.trch')
+    logging.info(f'Saving Output to: {filename_without_extensions}_lsd_.trch')
 
-    io.imsave(f'/home/chris/Dropbox (Partners HealthCare)/bism/data/testoutput/{filename_without_extensions}_out.tif', modelout[-1, ...].cpu().float().numpy())
+    io.imsave(f'{filename_without_extensions}_out.tif', modelout[-1, ...].cpu().float().numpy())
 
