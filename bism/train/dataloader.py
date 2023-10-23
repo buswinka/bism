@@ -8,6 +8,7 @@ from typing import Dict, List, Union
 from torch.utils.data import Dataset
 from tqdm import tqdm
 from typing import Tuple, Callable, List, Union, Optional
+import logging
 
 # basically just skoots
 
@@ -66,12 +67,12 @@ class dataset(Dataset):
 
             image: np.array = io.imread(image_path)  # [Z, X, Y, C] or [X, Y, C]
             masks: np.array = io.imread(f)  # [Z, X, Y] or [X, Y]
+            logging.debug(f'loaded image from filename: {image_path}, {image.shape=}, {image.dtype=}, {masks.shape=}, {masks.dtype=}')
 
             # we need to guess if its a 3d data operation, or 2d...
             if min(image.shape) <= 4 or image.ndim == 2:  # probably a 2d color image
                 image: np.array = image[..., np.newaxis] if image.ndim == 2 else image
                 image: np.array = image.transpose(-1, 0, 1)
-                print(image.shape)
 
             else:
                 image: np.array = image[..., np.newaxis] if image.ndim == 3 else image
@@ -142,6 +143,7 @@ class dataset(Dataset):
         self.image = [x.pin_memory() for x in self.image]
         self.masks = [x.pin_memory() for x in self.masks]
         return self
+
 
 
 

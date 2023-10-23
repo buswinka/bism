@@ -21,6 +21,7 @@ from bism.train.merged_transform import transform_from_cfg
 from bism.train.dataloader import dataset, MultiDataset, colate
 from bism.utils.visualization import write_progress
 from bism.targets import _valid_targets
+import logging
 
 Dataset = Union[Dataset, DataLoader]
 
@@ -38,13 +39,12 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
     base_model = base_model.to(device)
     base_model = torch.nn.parallel.DistributedDataParallel(base_model)
 
-    # if int(torch.__version__[0]) >= 2:
-    #     print('Comiled with Inductor')
-    #     model = torch.compile(base_model)
-    # else:
-    #     model = torch.jit.script(base_model)
-    #
-    model = base_model
+    if int(torch.__version__[0]) >= 2:
+        logging.info(f'compiling model with torch.inductor')
+        model = torch.compile(base_model)
+    else:
+        model = torch.jit.script(base_model)
+
 
     augmentations: Callable[[Dict[str, Tensor]], Dict[str, Tensor]] = partial(transform_from_cfg, cfg=cfg,
                                                                               device=device)
@@ -52,6 +52,7 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
     # INIT DATA ----------------------------
     _datasets = []
     for path, N in zip(cfg.TRAIN.TRAIN_DATA_DIR, cfg.TRAIN.TRAIN_SAMPLE_PER_IMAGE):
+        logging.info(f'Loading images sampled {N=} times for training from path: {path}')
         _device = device if cfg.TRAIN.STORE_DATA_ON_GPU else 'cpu'
         _datasets.append(dataset(path=path,
                                  transforms=augmentations,
@@ -69,6 +70,7 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
     # Validation Dataset
     _datasets = []
     for path, N in zip(cfg.TRAIN.VALIDATION_DATA_DIR, cfg.TRAIN.VALIDATION_SAMPLE_PER_IMAGE):
+        logging.info(f'Loading images sampled {N=} times for validation from path: {path}')
         _device = device if cfg.TRAIN.STORE_DATA_ON_GPU else 'cpu'
         _datasets.append(dataset(path=path,
                                  transforms=augmentations,
@@ -123,6 +125,7 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
     avg_val_loss = [-1]
 
     # WARMUP LOOP ----------------------------
+    logging.info('Performing Warmup...')
     for images, masks in dataloader:
         target: Tensor = target_fn(masks)  # makes the target we want
         pass
@@ -142,6 +145,7 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
         scaler.update()
 
     # TRAIN LOOP ----------------------------
+    logging.info('Training...')
     epoch_range = trange(epochs, desc=f'Loss = {1.0000000}') if rank == 0 else range(epochs)
     for e in epoch_range:
         _loss = []

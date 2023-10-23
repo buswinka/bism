@@ -5,9 +5,12 @@ Something akin to the `timm` package for 2D image tasks, but 3D instance segment
 When at all possible, each model will offer a 2D or 3D implementation, however we will not provide pre-trained model files. 
 
 No Documentation right now. In general, you launch a training run through a yaml configuration file. 
-Check out bism.train.__main__.py as the starting point for training. bism.config.config.py for the defualt 
+Check out `bism.train.__main__.py` as the starting point for training. `bism.config.config.py` for the default 
 configuration for each approach. This should (hopefully) allow for repeatable training of 3D instance segmentation 
 models of various types.
+
+This module is under active development so should not be used for anything but research purposes!
+
 
 Current Models
 ---------------
@@ -19,7 +22,7 @@ Current Models
 | Recurrent UNet | ✓   | ✓   | ✓          |
 | Residual UNet  |     |     |            |
 | Unet++         | ✓   | ✓   | ✓          |
-| CPnet          | ✓   | ✓   | ✓          |
+| CellposeNet    | ✓   | ✓   | ✓          |
 
 
 Current Generic Blocks
@@ -47,6 +50,7 @@ Segmentation Implementation
 | Omnipose          |    | ✓   |
 | Auto Context LSD  |    | ✓   |
 | Multitask LSDs    |    | ✓   |
+| Semantic          | ✓  | ✓   |
 
 
 Loss Functions

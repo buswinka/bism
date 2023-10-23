@@ -47,7 +47,9 @@ def eval(image_path: str, model_file: str):
 
     logging.info(f'Loading image from path: {image_path}')
     image = imread(image_path, pin_memory=False, ndim = 3 if '3d' in cfg.MODEL.BACKBONE else 2)
+
     if '3d' in cfg.MODEL.BACKBONE:
+        logging.debug('assuming a 3d image from model construction')
         c, x, y, z = image.shape
     else:
         z = -1
@@ -56,6 +58,7 @@ def eval(image_path: str, model_file: str):
     logging.info(f'Loaded an image with shape: {(c, x, y, z)}, dtype: {image.dtype}, min: {image.min()}, max: {image.max()}')
 
     scale: float = 2**16 if image.max() > 255 else 255
+    logging.debug(f'image scaled by scale: {scale}')
 
     modelout = torch.zeros((cfg.MODEL.OUT_CHANNELS, x, y, z), dtype=torch.half) if '3d' in cfg.MODEL.BACKBONE else torch.zeros((cfg.MODEL.OUT_CHANNELS, x, y), dtype=torch.half)
     cropsize = [300, 300, 20] if '3d' in cfg.MODEL.BACKBONE else [300, 300]

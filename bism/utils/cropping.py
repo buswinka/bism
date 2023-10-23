@@ -8,7 +8,7 @@ def _crop3d(img: Tensor, x: int, y: int, z: int, w: int, h: int, d: int) -> Tens
     """
     torch scriptable function which crops an image
 
-    :param img: torch.Tensor image of shape [C, X, Y, Z]
+    :param img: torch.Tensor image of shape [*, X, Y, Z]
     :param x: x coord of crop box
     :param y: y coord of crop box
     :param z: z coord of crop box
@@ -24,13 +24,11 @@ def _crop2d(img: Tensor, x: int, y: int, w: int, h: int) -> Tensor:
     """
     torch scriptable function which crops an image
 
-    :param img: torch.Tensor image of shape [C, X, Y, Z]
+    :param img: torch.Tensor image of shape [*, X, Y]
     :param x: x coord of crop box
     :param y: y coord of crop box
-    :param z: z coord of crop box
     :param w: width of crop box
     :param h: height of crop box
-    :param d: depth of crop box
     :return:
     """
 
@@ -41,8 +39,8 @@ def crop_to_identical_size(a: Tensor, b: Tensor) -> Tuple[Tensor, Tensor]:
     Crops Tensor a to the shape of Tensor b, then crops Tensor b to the shape of Tensor a.
 
     :param a: torch.Tensor with ndim 5, or ndim 4
-    :param b:
-    :return:
+    :param b: torch.Tensor with ndim equal to a
+    :return: a, and b, each with identical shape
     """
 
     if a.ndim != b.ndim: raise RuntimeError(f'Cannot crop two tensors of differing dimensions {a.shape=}, {b.shape=}')
@@ -103,13 +101,14 @@ def crops(image: Tensor,
     Generator which takes an image and sends out crops of a certain size with overlap pixels
 
     Shapes:
-        -image: :math:`(C, X, Y, Z)`
-        -yeilds: :math:`(B, C, X, Y, Z)`
+        -image: :math:`(C, X, Y, Z) or (C, X, Y)`
+        -yeilds: :math:`(B, C, X, Y, Z) or (B, C, X, Y)`
 
-    :param image: 4D torch.Tensor of shape [C, X, Y, Z]
-    :param crop_size: Spatial dims of the resulting crops [X, Y, Z]
-    :param overlap: Overlap between each crop
-    :return: Crop of the image, and the indicies of the crop
+    :param image: 4D torch.Tensor of shape [C, X, Y, Z] or 3D torch.Tensor of shape [C, X, Y]
+    :param crop_size: Spatial dims of the resulting crops [X, Y, Z] or [X, Y]
+    :param overlap: Overlap between each crop with identical shape as crop_size
+
+    :yields: Crop of the image, and the indicies of the crop
     """
 
     image_shape = image.shape  # C, X, Y, Z
