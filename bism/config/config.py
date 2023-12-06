@@ -29,19 +29,25 @@ _C.MODEL.BLOCK = 'block3d'
 _C.MODEL.CONCAT_BLOCK = 'concatconv3d'
 _C.MODEL.UPSAMPLE_BLOCK = 'upsamplelayer3d'
 _C.MODEL.NORMALIZATION ='layernorm'
+_C.MODEL.COMPILE = True
 
 # A list of activations, one for each output channel
 # Only matters if model name is "generic"
 _C.MODEL.OUTPUT_ACTIVATIONS = [None]
 
+
+# Only useful for torchvision maskRCNN
+_C.MODEL.ANCHOR_SIZES = ((32,), (64,), (128,), (256,), (512,))
+_C.MODEL.ANCHOR_ASPECT_RATIOS = ((0.5, 1.0, 2.0),)
+
 # Training Configurations
 _C.TRAIN = CN()
 _C.TRAIN.DISTRIBUTED = True
-_C.TRAIN.PRETRAINED_MODEL_PATH = []
+_C.TRAIN.PRETRAINED_MODEL_PATH = ''
 
 
 # Choose here what kind of training you want to do! Default is to predict 3D affinities
-# Supported values are: affinities, aclsd, lsd, omnipose mtlsd, semantic
+# Supported values are: affinities, aclsd, lsd, omnipose mtlsd, semantic, torchvision
 _C.TRAIN.TARGET = 'affinities'
 
 
@@ -108,6 +114,8 @@ _C.TARGET.OMNIPOSE.MAX_DISTANCE = 60
 
 _C.TARGET.SEMANTIC = CN()
 _C.TARGET.SEMANTIC.THR = 0.5
+
+_C.TARGET.TORCHVISION = CN()
 
 def get_cfg_defaults():
     r"""Get a yacs CfgNode object with default values for my_project."""

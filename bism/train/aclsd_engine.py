@@ -19,7 +19,7 @@ from copy import deepcopy
 from yacs.config import CfgNode
 
 from bism.targets import _valid_targets
-from bism.train.dataloader import dataset, MultiDataset, colate
+from bism.train.dataloader import dataset, MultiDataset, generic_colate as colate
 from bism.train.merged_transform import transform_from_cfg
 from bism.utils.distributed import setup_process
 from bism.utils.visualization import write_progress

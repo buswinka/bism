@@ -5,6 +5,7 @@ import os.path
 
 import torch
 from yacs.config import CfgNode
+from bism.eval.run import run_model
 
 
 torch.set_float32_matmul_precision("high")
@@ -23,39 +24,7 @@ def main():
 
     args = parser.parse_args()
 
-    # Set logging level
-    _log_map = [
-        logging.DEBUG,
-        logging.INFO,
-        logging.WARNING,
-        logging.ERROR,
-        logging.CRITICAL,
-    ]
-    logging.basicConfig(
-        level=_log_map[args.log],
-        format="[%(asctime)s] bism-eval [%(levelname)s]: %(message)s",
-    )
-
-    cfg: CfgNode = torch.load(args.model_file, map_location="cpu")["cfg"]
-
-    if cfg.TRAIN.TARGET == "affinities":
-        import bism.eval.affinities # do it this way because waterz is a nightmare
-        if os.path.isdir(args.image_path):
-            files = glob.glob(args.image_path + "/*.tif")
-            files.sort()
-        else:
-            files = [args.image_path]
-        for f in files:
-            bism.eval.affinities.eval(f, args.model_file)
-
-    elif cfg.TRAIN.TARGET == "lsd":
-        import bism.eval.lsd
-        bism.eval.lsd.eval(args.image_path, args.model_file)
-
-    else:
-        import bism.eval.generic
-        bism.eval.generic.eval(args.image_path, args.model_file)
-
+    run_model(args.model_file, args.image_path, args.log)
 
 if __name__ == "__main__":
     import sys

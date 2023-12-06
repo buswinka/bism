@@ -19,6 +19,13 @@ setuptools.setup(
         'scikit-image',
         'yacs',
         'tensorboard',
+        'sphinx',
+        'furo',
+        'sphinx-copybutton',
+        'sphinx-design',
+        'sphinx-inline-tabs',
+        'myst-parser',
+        'myst-nb'
 
     ],
     entry_points={

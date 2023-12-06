@@ -26,10 +26,15 @@ def imread(image_path: str,
         image: np.array = image[[2], ...] if image.shape[0] > 3 else image  # [C=1, X, Y, Z]
 
         image: Tensor = torch.from_numpy(image)
-    else:
-        logging.debug(f"Assuming image with shape {image.shape} as 2D image")
 
-        image: np.array = image.transpose(-1, 0, 1)
+    else:
+        if ndim == 2:
+            logging.debug(f"Assuming image with shape {image.shape} as 2D greyscale image")
+            image = np.repeat(image[np.newaxis, ...], 3, axis=0)
+        else:
+            logging.debug(f"Assuming image with shape {image.shape} as 2D image")
+            image: np.array = image.transpose(-1, 0, 1)
+
         image: Tensor = torch.from_numpy(image)
 
     if pin_memory:

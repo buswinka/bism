@@ -56,6 +56,7 @@ class dataset(Dataset):
         for p in path:
             self.files.extend(glob.glob(f'{p}{os.sep}*.labels.tif'))
 
+
         for f in tqdm(self.files, desc='Loading Files: '):
             if os.path.exists(f[:-11:] + '.tif'):
                 image_path = f[:-11:] + '.tif'
@@ -67,12 +68,15 @@ class dataset(Dataset):
 
             image: np.array = io.imread(image_path)  # [Z, X, Y, C] or [X, Y, C]
             masks: np.array = io.imread(f)  # [Z, X, Y] or [X, Y]
+
             logging.debug(f'loaded image from filename: {image_path}, {image.shape=}, {image.dtype=}, {masks.shape=}, {masks.dtype=}')
 
             # we need to guess if its a 3d data operation, or 2d...
             if min(image.shape) <= 4 or image.ndim == 2:  # probably a 2d color image
                 image: np.array = image[..., np.newaxis] if image.ndim == 2 else image
                 image: np.array = image.transpose(-1, 0, 1)
+
+                masks: np.array = masks.transpose([2, 0, 1]) if masks.ndim == 3 else masks
 
             else:
                 image: np.array = image[..., np.newaxis] if image.ndim == 3 else image
@@ -86,7 +90,9 @@ class dataset(Dataset):
 
             # Convert to torch.tensor
             image: Tensor = torch.from_numpy(image / scale)  # .to(self.device)
-            masks: Tensor = torch.from_numpy(masks).int().unsqueeze(0) # .to(self.device)
+            masks: Tensor = torch.from_numpy(masks).int()
+            if masks.ndim == 2:
+                masks = masks.unsqueeze(0)
 
             # I need the images in a float, but use torch automated mixed precision so can store as half.
             # This may not be the same for you!
@@ -103,8 +109,8 @@ class dataset(Dataset):
         item = item // self.sample_per_image
 
         with torch.no_grad():
-            data_dict = {'image': self.image[item],
-                         'masks': self.masks[item]}
+            data_dict = {'image': self.image[item].clone(),
+                         'masks': self.masks[item].clone()}
 
             # Transformation pipeline
             with torch.no_grad():
@@ -143,8 +149,6 @@ class dataset(Dataset):
         self.image = [x.pin_memory() for x in self.image]
         self.masks = [x.pin_memory() for x in self.masks]
         return self
-
-
 
 
 class BackgroundDataset(Dataset):
@@ -303,9 +307,15 @@ class MultiDataset(Dataset):
 
 
 # Custom batching function!
-def colate(data_dict: List[Dict[str, Tensor]]) -> Tuple[Tensor, List[Dict[str, Tensor]]]:
+def generic_colate(data_dict: List[Dict[str, Tensor]]) -> Tuple[Tensor, Tensor]:
     images = torch.stack([dd.pop('image') for dd in data_dict], dim=0)
     masks = torch.stack([dd.pop('masks') for dd in data_dict], dim=0)
 
     return images, masks
+
+def torchvision_colate(data_dict: List[Dict[str, Tensor]]) -> Tuple[List[Tensor], List[Tensor]]:
+    images = [dd.pop('image') for dd in data_dict]
+    masks = [dd.pop('masks') for dd in data_dict]
+    return images, masks
+
 

@@ -6,6 +6,7 @@ import bism.loss.tversky
 import bism.loss.dice
 import bism.loss.jaccard
 import bism.loss.omnipose
+import bism.loss.torchvision
 
 _valid_optimizers = {
     'adamw': torch.optim.AdamW,
@@ -22,7 +23,9 @@ _valid_loss_functions = {
     'dice': bism.loss.dice.dice,
     'jaccard': bism.loss.jaccard.jaccard,
     'mse': torch.nn.MSELoss,
-    'omnipose': bism.loss.omnipose.omnipose_loss
+    'omnipose': bism.loss.omnipose.omnipose_loss,
+    'torchvision': bism.loss.torchvision.sumloss,
+
 
 }
 

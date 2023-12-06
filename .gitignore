@@ -1,4 +1,5 @@
 test_config.yaml
+testscripts/
 data/
 test_trained_model_files/
 runs/
@@ -142,3 +143,4 @@ dmypy.json
 /fully_trained_tensorboard_runs/
 /bism/playground/
 /data/
+/testscripts/

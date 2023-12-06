@@ -4,6 +4,18 @@ from typing import *
 
 import torch
 import torch.nn as nn
+from torchvision.models.detection import (
+    MaskRCNN_ResNet50_FPN_V2_Weights,
+)
+from torchvision.models.detection.anchor_utils import AnchorGenerator
+from torchvision.models.detection.mask_rcnn import (
+    MaskRCNN,
+    _resnet_fpn_extractor,
+    RPNHead,
+    FastRCNNConvFCHead,
+    MaskRCNNHeads,
+)
+from torchvision.models.resnet import ResNet50_Weights, resnet50
 from yacs.config import CfgNode
 
 import bism.backends
@@ -29,7 +41,7 @@ def cfg_to_bism_model(cfg: CfgNode) -> nn.Module:
 
     _valid_upsample_layers = {
         "upsamplelayer3d": bism.modules.upsample_layer.UpSampleLayer3D,
-        "upsamplelayer2d": bism.modules.upsample_layer.UpSampleLayer2D
+        "upsamplelayer2d": bism.modules.upsample_layer.UpSampleLayer2D,
     }
 
     _valid_normalization = {
@@ -49,7 +61,7 @@ def cfg_to_bism_model(cfg: CfgNode) -> nn.Module:
 
     _valid_concat_blocks = {
         "concatconv3d": bism.modules.concat.ConcatConv3D,
-        "concatconv2d": bism.modules.concat.ConcatConv2D
+        "concatconv2d": bism.modules.concat.ConcatConv2D,
     }
 
     _valid_models = {
@@ -137,8 +149,67 @@ def cfg_to_bism_model(cfg: CfgNode) -> nn.Module:
     else:
         lsd_backbone = backbone(cfg.MODEL.IN_CHANNELS, 10, **kwarg)
         aff_backbone = backbone(10, 3, **kwarg)
-        print('cfg.MODEL.MODEL')
+        print("cfg.MODEL.MODEL")
         lsd_model = _valid_models[cfg.MODEL.MODEL](lsd_backbone)
         aff_model = _valid_models[cfg.MODEL.MODEL](aff_backbone)
 
         return lsd_model, aff_model
+
+
+def cfg_to_torchvision_model(cfg: CfgNode) -> nn.Module:
+    __valid_torchvision_weights__ = {
+        "maskrcnn_resnet50_fpn_v2": MaskRCNN_ResNet50_FPN_V2_Weights.COCO_V1,
+    }
+
+    weights = __valid_torchvision_weights__[cfg.MODEL.BACKBONE]
+
+    assert (
+        cfg.MODEL.IN_CHANNELS == 3
+    ), f"Torchvision models assume images in RGB format! Configuration value {cfg.MODEL.IN_CHANNELS=} must equal 3"
+
+    weights = MaskRCNN_ResNet50_FPN_V2_Weights.verify(weights)
+    weights_backbone = ResNet50_Weights.IMAGENET1K_V1
+
+    is_trained = weights is not None or weights_backbone is not None
+    trainable_backbone_layers = 5
+
+    backbone = resnet50(weights=weights_backbone, progress=False)
+    backbone = _resnet_fpn_extractor(
+        backbone, trainable_backbone_layers, norm_layer=nn.BatchNorm2d
+    )
+
+    anchor_sizes = tuple(tuple(a) for a in cfg.MODEL.ANCHOR_SIZES)
+    print(anchor_sizes, cfg.MODEL.ANCHOR_ASPECT_RATIOS)
+
+    rpn_anchor_generator = AnchorGenerator(
+        anchor_sizes,
+        ((0.5, 1.0, 2.0),) * len(anchor_sizes),
+    )
+    rpn_head = RPNHead(
+        backbone.out_channels,
+        rpn_anchor_generator.num_anchors_per_location()[0],
+        conv_depth=2,
+    )
+    box_head = FastRCNNConvFCHead(
+        (backbone.out_channels, 7, 7),
+        [256, 256, 256, 256],
+        [1024],
+        norm_layer=nn.BatchNorm2d,
+    )
+    mask_head = MaskRCNNHeads(
+        backbone.out_channels, [256, 256, 256, 256], 1, norm_layer=nn.BatchNorm2d
+    )
+
+    model = MaskRCNN(
+        backbone,
+        num_classes=cfg.MODEL.OUT_CHANNELS + 1,
+        rpn_anchor_generator=rpn_anchor_generator,
+        rpn_head=rpn_head,
+        box_head=box_head,
+        mask_head=mask_head,
+        box_nms_thresh=0.33,
+        box_detections_per_img=500,
+        # min_size=100,
+        # max_size=4000,
+    )
+    return model

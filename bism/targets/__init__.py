@@ -4,6 +4,7 @@ from bism.targets.aclsd import aclsd
 from bism.targets.mtlsd import mtlsd
 from bism.targets.omnipose import omnipose
 from bism.targets.semantic import semantic
+from bism.targets.torchvision import maskrcnn
 
 _valid_targets = {
     'lsd': lsd,
@@ -11,5 +12,6 @@ _valid_targets = {
     'mtlsd': mtlsd,
     'aclsd': aclsd,
     'omnipose': omnipose,
-    'semantic': semantic
+    'semantic': semantic,
+    'torchvision': maskrcnn
 }

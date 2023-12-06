@@ -18,8 +18,8 @@ from yacs.config import CfgNode
 
 from bism.utils.distributed import setup_process
 from bism.train.merged_transform import transform_from_cfg
-from bism.train.dataloader import dataset, MultiDataset, colate
-from bism.utils.visualization import write_progress
+from bism.train.dataloader import dataset, MultiDataset, generic_colate, torchvision_colate
+from bism.utils.visualization import write_progress, write_torchvision_progress
 from bism.targets import _valid_targets
 import logging
 
@@ -27,25 +27,39 @@ Dataset = Union[Dataset, DataLoader]
 
 from bism.config.valid import _valid_optimizers, _valid_loss_functions, _valid_lr_schedulers
 
+logging.basicConfig(level=logging.DEBUG)
 
 torch.manual_seed(101196)
 torch.set_float32_matmul_precision('high')
 
 
-def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: CfgNode):
+def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: CfgNode, logging_level):
     setup_process(rank, world_size, port, backend='nccl')
     device = f'cuda:{rank}'
+
+    _log_map = [
+        logging.DEBUG,
+        logging.INFO,
+        logging.WARNING,
+        logging.ERROR,
+        logging.CRITICAL,
+    ]
+    logging.basicConfig(
+        level=_log_map[logging_level],
+        format=f"[%(asctime)s] bism-train [%(levelname)s]: %(message)s",
+        force=True,
+    )
 
     base_model = base_model.to(device)
     base_model = torch.nn.parallel.DistributedDataParallel(base_model)
 
-    if int(torch.__version__[0]) >= 2:
+    if int(torch.__version__[0]) >= 2 and cfg.MODEL.COMPILE:
         logging.info(f'compiling model with torch.inductor')
         model = torch.compile(base_model)
     else:
-        model = torch.jit.script(base_model)
+        model = base_model
 
-
+    colate = generic_colate if 'torchvision' != cfg.TRAIN.TARGET else torchvision_colate
     augmentations: Callable[[Dict[str, Tensor]], Dict[str, Tensor]] = partial(transform_from_cfg, cfg=cfg,
                                                                               device=device)
 
@@ -127,7 +141,8 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
     # WARMUP LOOP ----------------------------
     logging.info('Performing Warmup...')
     for images, masks in dataloader:
-        target: Tensor = target_fn(masks)  # makes the target we want
+        # usually a Tensor, sometimes a List of Data Dicts for torchvision
+        target: Union[Tensor, List[Dict[str, Tensor]]] = target_fn(masks)  # makes the target we want
         pass
 
     warmup_range = trange(cfg.TRAIN.N_WARMUP, desc='Warmup: {}')
@@ -135,7 +150,7 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
         optimizer.zero_grad(set_to_none=True)
         with autocast(enabled=cfg.TRAIN.MIXED_PRECISION):  # Saves Memory!
 
-            out: Tensor = model(images)
+            out: Tensor = model(images) if cfg.TRAIN.TARGET != 'torchvision' else model(images, target)
             loss: Tensor = loss_fn(out, target)
 
             warmup_range.desc = f'{loss.item()}'
@@ -148,36 +163,64 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
     logging.info('Training...')
     epoch_range = trange(epochs, desc=f'Loss = {1.0000000}') if rank == 0 else range(epochs)
     for e in epoch_range:
+        logging.info(f'Starting training with epoch: {e}')
         _loss = []
 
         if cfg.TRAIN.DISTRIBUTED:
+            logging.debug(f'Set train sampler to epoch {e}')
             train_sampler.set_epoch(e)
 
-        for images, masks in dataloader:
+        for niter, (images, masks) in enumerate(dataloader):
             target: Tensor = target_fn(masks)  # makes the target we want
             optimizer.zero_grad(set_to_none=True)
 
             with autocast(enabled=cfg.TRAIN.MIXED_PRECISION):  # Saves Memory!
-                out: Tensor = model(images)
+                out: Tensor = model(images) if cfg.TRAIN.TARGET != 'torchvision' else model(images, target)
                 loss: Tensor = loss_fn(out, target)
+
+                if torch.isnan(loss):
+                    logging.warning(f'NAN value detected in loss at epoch: {e}/{epochs} : {niter}/{len(dataloader)}')
+                    if isinstance(out, dict):
+                        for k, v in out.items():
+                            logging.warning(f'{k}={v}')
+                    continue
+
+                logging.debug(f'loss value at epoch {e}/{epochs} and batch {niter}/{len(dataloader)} -> {loss.item()}')
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
 
-            if e > swa_start:
-                swa_model.update_parameters(model)
+            # if e > swa_start:
+            #     swa_model.update_parameters(model)
 
             _loss.append(loss.item())
 
         avg_epoch_loss.append(mean(_loss))
         scheduler.step()
+        logging.info(f'Average training loss for epoch {e}: {avg_epoch_loss[-1]}')
 
         if writer and (rank == 0):
+            logging.info(f'writing to train tensorboard for epoch: {e}')
             writer.add_scalar('lr', scheduler.get_last_lr()[-1], e)
             writer.add_scalar('Loss/train', avg_epoch_loss[-1], e)
+            if cfg.TRAIN.TARGET == 'torchvision':
+                for k, v in out.items():
+                    logging.debug(f'writing torchvision train loss scalar: {k}:{v}')
+                    writer.add_scalar(f'Loss/{k}', out[k], e)
 
-            write_progress(writer=writer, tag='Train', cfg=cfg, epoch=e, images=images, masks=masks, target=target, out=out)
+            if isinstance(out, Tensor):  # A normal Bism Output will be a Tensor
+                write_progress(writer=writer, tag='Train', cfg=cfg, epoch=e, images=images, masks=masks, target=target, out=out)
+            elif isinstance(out, Dict):  # This is a torchvision output
+                with autocast(enabled=cfg.TRAIN.MIXED_PRECISION):  # Saves Memory!
+                    logging.debug('evaluating torchvision model for image output')
+                    model.eval()
+                    out = model(images)
+                    logging.debug(f'model eval predicted {out[0]["scores"].shape} objects in a test image')
+                    model.train()
+                write_torchvision_progress(writer=writer, tag='Train', cfg=cfg, epoch=e, images=images, masks=masks, target=target, out=out)
+            else:
+                logging.error(f'Attempting to write an output of unknown type to tensorboard during training step: {type(out)=}')
 
         # # Validation Step
         if e % 10 == 0 and valdiation_dataloader:
@@ -187,25 +230,45 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
 
                 with autocast(enabled=cfg.TRAIN.MIXED_PRECISION):  # Saves Memory!
                     with torch.no_grad():
-                        out: Tensor = model(images)
-                        loss = loss_fn(out, target)
+                        out: Tensor = model(images) if cfg.TRAIN.TARGET != 'torchvision' else model(images, target)
+                        loss: Tensor = loss_fn(out, target)
 
                 scaler.scale(loss)
                 _loss.append(loss.item())
 
             avg_val_loss.append(mean(_loss))
 
+            logging.info(f'Average validation loss for epoch {e}: {avg_val_loss[-1]}')
             if writer and (rank == 0):
+                logging.info(f'writing to validation tensorboard for epoch: {e}')
                 writer.add_scalar('Loss/validate', avg_epoch_loss[-1], e)
-                write_progress(writer=writer, tag='Validation', cfg=cfg, epoch=e, images=images, masks=masks, target=target, out=out)
+                if cfg.TRAIN.TARGET == 'torchvision':
+                    for k, v in out.items():
+                        logging.debug(f'writing torchvision validation loss scalar: {k}:{v}')
+                        writer.add_scalar(f'Loss/validate_{k}', out[k], e)
 
-        # now we write the loss to tqdm progress bar
+                if isinstance(out, Tensor):  # A normal Bism Output will be a Tensor
+                    write_progress(writer=writer, tag='Train', cfg=cfg, epoch=e, images=images, masks=masks,
+                                   target=target, out=out)
+                elif isinstance(out, Dict):  # This is a torchvision output
+                    logging.debug('evaluating torchvision model for image output')
+                    with autocast(enabled=cfg.TRAIN.MIXED_PRECISION):  # Saves Memory!
+                        model.eval()
+                        out = model(images)
+                        model.train()        # now we write the loss to tqdm progress bar
+
+                    write_torchvision_progress(writer=writer, tag='Train', cfg=cfg, epoch=e, images=images, masks=masks,
+                                               target=target, out=out)
+                else:
+                    logging.error(
+                        f'Attempting to write an output of unknown type to tensorboard during training step: {type(out)=}')
         if rank == 0:
             epoch_range.desc = f'lr={scheduler.get_last_lr()[-1]:.3e}, Loss (train | val): ' + f'{avg_epoch_loss[-1]:.5f} | {avg_val_loss[-1]:.5f}'
 
         # Save a state dict every so often
-        state_dict = model.module.state_dict() if hasattr(model, 'module') else model.state_dict()
         if e % cfg.TRAIN.SAVE_INTERVAL == 0:
+            logging.info(f'saving intermediate model state_dict to ./test_{e}.trch')
+            state_dict = model.module.state_dict() if hasattr(model, 'module') else model.state_dict()
             torch.save(state_dict, cfg.TRAIN.SAVE_PATH + f'/test_{e}.trch')
 
     if rank == 0:
@@ -218,8 +281,13 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
                      }
         try:
             torch.save(constants, f'{cfg.TRAIN.SAVE_PATH}/{os.path.split(writer.log_dir)[-1]}.trch')
+            logging.info(
+                f'saved final training model to: {cfg.TRAIN.SAVE_PATH}/{os.path.split(writer.log_dir)[-1]}.trch')
         except:
-            print(f'Could not save at: {cfg.TRAIN.SAVE_PATH}/{os.path.split(writer.log_dir)[-1]}.trch'
-                  f'Saving at {os.getcwd()}/{os.path.split(writer.log_dir)[-1]}.trch instead')
-
+            logging.warning(
+                f'Could not save final training model to: {cfg.TRAIN.SAVE_PATH}/{os.path.split(writer.log_dir)[-1]}.trch' +\
+                f'Saving at {os.getcwd()}/{os.path.split(writer.log_dir)[-1]}.trch instead'
+            )
             torch.save(constants, f'{os.getcwd()}/{cfg.TRAIN.TARGET}_{os.path.split(writer.log_dir)[-1]}.trch', )
+
+    logging.info('Training has concluded')
