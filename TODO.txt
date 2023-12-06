@@ -1,0 +1,9 @@
+IDEAS:
+
+	- bism gui: a quick inspector of trained model files. 
+		- could load up two models and compare
+		- run accuracy stats n stuff
+	- bism experiment planner:
+		- define a set of config files, run each until convergence over a set of multiple days. Make error tolerant. 
+	- bism compare tool:
+		- define multiple config files, and one or more reference images, and create a table of accuracy stats. 
