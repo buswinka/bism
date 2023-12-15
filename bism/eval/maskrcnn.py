@@ -3,19 +3,21 @@ import os
 import os.path
 from typing import List, Tuple, Callable, Union, OrderedDict, Optional, Dict
 
-import bism.utils.cropping
-import skimage.io as io
 import torch
 import torch.nn as nn
-import torch.optim.swa_utils
+from torch import Tensor
 from bism.models.construct import cfg_to_bism_model, cfg_to_torchvision_model
 from bism.utils.io import imread
-from torch.cuda.amp import GradScaler, autocast
-from tqdm import tqdm
+
+import skimage.io as io
+
+from matplotlib import colormaps
+import random
+import torchvision.utils
 
 
 @torch.no_grad()
-def eval(image_path: str, model_file: str):
+def eval(image_path: str, model_file: str, device: str):
     """
     Runs an affinity segmentation on an image.
 
@@ -25,17 +27,14 @@ def eval(image_path: str, model_file: str):
     logging.info(f"Loading model file: {model_file}")
     checkpoint = torch.load(model_file, map_location="cpu")
     cfg = checkpoint["cfg"]
-    print(cfg)
 
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    if device is None:
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        device = 'mps' if torch.backends.mps.is_available() else device
+
 
     logging.info(f"Constructing BISM model")
-    if "maskrcnn" not in cfg.MODEL.BACKBONE:
-        base_model: nn.Module | List[nn.Module] = cfg_to_bism_model(
-            cfg
-        )  # This is our skoots torch model
-    else:
-        base_model: nn.Module = cfg_to_torchvision_model(cfg)
+    base_model: nn.Module = cfg_to_torchvision_model(cfg)
 
     state_dict = (
         checkpoint
@@ -45,15 +44,8 @@ def eval(image_path: str, model_file: str):
     base_model.load_state_dict(state_dict)
     base_model = base_model.to(device)
 
-    logging.info(f"Compiling BISM model with torch inductor")
-    model = torch.compile(base_model)  # compile using torch 2
-    testin = (
-        torch.rand((1, cfg.MODEL.IN_CHANNELS, 300, 300, 20))
-        if "3d" in cfg.MODEL.BACKBONE
-        else torch.rand((1, cfg.MODEL.IN_CHANNELS, 300, 300))
-    )
-
-    _ = model(testin.to(device).float())
+    model = base_model
+    model = model.eval()
 
     filename_without_extensions = os.path.splitext(image_path)[0]
 
@@ -62,82 +54,31 @@ def eval(image_path: str, model_file: str):
         image_path, pin_memory=False, ndim=3 if "3d" in cfg.MODEL.BACKBONE else 2
     )
 
-    if "3d" in cfg.MODEL.BACKBONE:
-        logging.debug("assuming a 3d image from model construction")
-        c, x, y, z = image.shape
-    else:
-        z = -1
-        c, x, y = image.shape
-
+    c, x, y = image.shape
     logging.info(
-        f"Loaded an image with shape: {(c, x, y, z)}, dtype: {image.dtype}, min: {image.min()}, max: {image.max()}"
+        f"Loaded an image with shape: {(c, x, y)}, dtype: {image.dtype}, min: {image.min()}, max: {image.max()}"
     )
 
-    scale: float = 2**16 if image.max() > 255 else 255
+    scale: float = 2 ** 16 if image.max() > 255 else 255
     logging.debug(f"image scaled by scale: {scale}")
 
-    modelout = (
-        torch.zeros((cfg.MODEL.OUT_CHANNELS, x, y, z), dtype=torch.half)
-        if "3d" in cfg.MODEL.BACKBONE
-        else torch.zeros((cfg.MODEL.OUT_CHANNELS, x, y), dtype=torch.half)
-    )
-    cropsize = (
-        [
-            cfg.AUGMENTATION.CROP_WIDTH,
-            cfg.AUGMENTATION.CROP_HEIGHT,
-            cfg.AUGMENTATION.CROP_DEPTH,
-        ]
-        if "3d" in cfg.MODEL.BACKBONE
-        else [cfg.AUGMENTATION.CROP_WIDTH, cfg.AUGMENTATION.CROP_HEIGHT]
-    )
-    overlap = [50, 50, 5] if "3d" in cfg.MODEL.BACKBONE else [50, 50]
-    logging.debug(f"Creating cropper with {cropsize=}, {overlap=}")
+    image = image.div(scale).to(device)
 
-    total = bism.utils.cropping.get_total_num_crops(image.shape, cropsize, overlap)
-    iterator = tqdm(
-        bism.utils.cropping.crops(image, cropsize, overlap), desc="", total=total
-    )
+    # torchvision model does not support tileing, so we just run the image straight through
+    out: Dict[str, Tensor] = model([image])[0]
 
-    for slice, ind in iterator:
-        with autocast(enabled=True) and torch.no_grad():  # Saves Memory!
-            out = model(slice.div(scale).float().cuda())
-
-        if "3d" in cfg.MODEL.BACKBONE:
-            x, y, z = ind
-
-            modelout[
-                :,
-                x + overlap[0] : x + cropsize[0] - overlap[0],
-                y + overlap[1] : y + cropsize[1] - overlap[1],
-                z + overlap[2] : z + cropsize[2] - overlap[2],
-            ] = (
-                out[
-                    0,
-                    :,
-                    overlap[0] : -overlap[0],
-                    overlap[1] : -overlap[1],
-                    overlap[2] : -overlap[2] :,
-                ]
-                .half()
-                .cpu()
-            )
-            iterator.desc = f"Evaluating Model on slice [x{x}:y{y}:z{z}]"
-        else:
-            x, y = ind
-            modelout[
-                :,
-                x + overlap[0] : x + cropsize[0] - overlap[0],
-                y + overlap[1] : y + cropsize[1] - overlap[1],
-            ] = (
-                out[0, :, overlap[0] : -overlap[0], overlap[1] : -overlap[1]]
-                .half()
-                .cpu()
-            )
-            iterator.desc = f"Evaluating Model on slice [x{x}:y{y}]"
+    rgb = image.mul(255).round().to(torch.uint8)
+    cmaps = ['Blues', 'Greens', 'Reds', 'Purples', 'Oranges', 'Greys']
+    for cmap, i in zip(cmaps, range(1, cfg.MODEL.OUT_CHANNELS + 1)):
+        l: Tensor = out['labels'].cpu().eq(i)
+        n_instances: int = l.sum()
+        colors = [tuple(int(c * 255) for c in colormaps[cmap](random.random() * 0.7 + 0.3)[0:3]) for _ in range(n_instances)]
+        rgb = torchvision.utils.draw_segmentation_masks(rgb, out['masks'][l, 0, ...].gt(0.5), colors=colors, alpha=0.33)
 
     logging.info(f"Saving Output to: {filename_without_extensions}_lsd_.trch")
+    io.imsave(f'{filename_without_extensions}_mask_overlay.png', rgb.permute(1, 2, 0).cpu().numpy())
+    torch.save(out, f'{filename_without_extensions}_output_dict.trch')
 
-    io.imsave(
-        f"{filename_without_extensions}_out.tif",
-        modelout[-1, ...].cpu().float().numpy(),
-    )
+    masks = out['masks'].gt(0.5) * torch.arange(1, out['masks'].shape[0]+1).view(-1, 1, 1, 1)
+
+    return out

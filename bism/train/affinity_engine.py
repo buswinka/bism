@@ -216,7 +216,7 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
                      'model_state_dict': state_dict,
                      'optimizer_state_dict': optimizer.state_dict(),
                      'avg_epoch_loss': avg_epoch_loss,
-                     'avg_val_loss': avg_epoch_loss,
+                     'avg_val_loss': avg_val_loss,
                      }
         try:
             torch.save(constants, f'{cfg.TRAIN.SAVE_PATH}/{os.path.split(writer.log_dir)[-1]}.trch')

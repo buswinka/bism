@@ -4,9 +4,7 @@ from typing import *
 
 import torch
 import torch.nn as nn
-from torchvision.models.detection import (
-    MaskRCNN_ResNet50_FPN_V2_Weights,
-)
+from torchvision.models.detection import MaskRCNN_ResNet50_FPN_V2_Weights
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models.detection.mask_rcnn import (
     MaskRCNN,
@@ -19,6 +17,7 @@ from torchvision.models.resnet import ResNet50_Weights, resnet50
 from yacs.config import CfgNode
 
 import bism.backends
+import bism.backends.unet_conditional_difusion
 from bism.models.generic import Generic
 from bism.models.lsd import LSDModel
 from bism.models.spatial_embedding import SpatialEmbedding
@@ -32,11 +31,15 @@ def cfg_to_bism_model(cfg: CfgNode) -> nn.Module:
         "bism_unext2d": bism.backends.unext.UNeXT_2D,
         "bism_unet": bism.backends.unet.UNet_3D,
         "bism_unet2d": bism.backends.unet.UNet_2D,
+        "bism_unet2d_spade": bism.backends.unet_conditional_difusion.UNet_SPADE_2D,
+        "bism_unet3d_spade": bism.backends.unet_conditional_difusion.UNet_SPADE_3D,
     }
 
     _valid_model_blocks = {
         "block3d": bism.modules.convnext_block.Block3D,
         "block2d": bism.modules.convnext_block.Block2D,
+        'unet_block3d': bism.modules.unet_block.Block3D,
+        'unet_block2d': bism.modules.unet_block.Block2D,
     }
 
     _valid_upsample_layers = {
@@ -128,7 +131,31 @@ def cfg_to_bism_model(cfg: CfgNode) -> nn.Module:
             f"{cfg.MODEL.ARCHITECTURE} is not a valid model constructor, valid options are: {_valid_backbone_constructors.keys()}"
         )
 
-    if cfg.TRAIN.TARGET != "aclsd":
+    if cfg.TRAIN.TARGET == "iadb":
+        backbone = backbone(cfg.MODEL.IN_CHANNELS, cfg.MODEL.OUT_CHANNELS, cfg.TARGET.IADB.MASK_CHANNELS, **kwarg)
+        assert cfg.MODEL.MODEL == 'generic', f'iadb backbone can only be used with generic model, not {cfg.MODEL.MODEL=}'
+        keys: List[str] = copy(cfg.MODEL.OUTPUT_ACTIVATIONS)
+        if len(keys) != cfg.MODEL.OUT_CHANNELS:
+            raise RuntimeError(
+                "The number of output activations must equal the number of output channels"
+            )
+        activations: List[nn.Module | None] = [
+            _valid_activations[a]() if a is not None else None
+            for a in cfg.MODEL.OUTPUT_ACTIVATIONS
+        ]
+        model = _valid_models[cfg.MODEL.MODEL](backbone, activations)
+        return model
+
+    elif cfg.TRAIN.TARGET == "aclsd":
+        lsd_backbone = backbone(cfg.MODEL.IN_CHANNELS, 10, **kwarg)
+        aff_backbone = backbone(10, 3, **kwarg)
+        print("cfg.MODEL.MODEL")
+        lsd_model = _valid_models[cfg.MODEL.MODEL](lsd_backbone)
+        aff_model = _valid_models[cfg.MODEL.MODEL](aff_backbone)
+
+        return lsd_model, aff_model
+
+    else:
         backbone = backbone(cfg.MODEL.IN_CHANNELS, cfg.MODEL.OUT_CHANNELS, **kwarg)
         if cfg.MODEL.MODEL != "generic":
             model = _valid_models[cfg.MODEL.MODEL](backbone)
@@ -145,15 +172,6 @@ def cfg_to_bism_model(cfg: CfgNode) -> nn.Module:
             model = _valid_models[cfg.MODEL.MODEL](backbone, activations)
 
         return model
-
-    else:
-        lsd_backbone = backbone(cfg.MODEL.IN_CHANNELS, 10, **kwarg)
-        aff_backbone = backbone(10, 3, **kwarg)
-        print("cfg.MODEL.MODEL")
-        lsd_model = _valid_models[cfg.MODEL.MODEL](lsd_backbone)
-        aff_model = _valid_models[cfg.MODEL.MODEL](aff_backbone)
-
-        return lsd_model, aff_model
 
 
 def cfg_to_torchvision_model(cfg: CfgNode) -> nn.Module:
@@ -182,8 +200,7 @@ def cfg_to_torchvision_model(cfg: CfgNode) -> nn.Module:
     print(anchor_sizes, cfg.MODEL.ANCHOR_ASPECT_RATIOS)
 
     rpn_anchor_generator = AnchorGenerator(
-        anchor_sizes,
-        ((0.5, 1.0, 2.0),) * len(anchor_sizes),
+        anchor_sizes, ((0.5, 1.0, 2.0),) * len(anchor_sizes),
     )
     rpn_head = RPNHead(
         backbone.out_channels,
@@ -207,7 +224,7 @@ def cfg_to_torchvision_model(cfg: CfgNode) -> nn.Module:
         rpn_head=rpn_head,
         box_head=box_head,
         mask_head=mask_head,
-        box_nms_thresh=0.33,
+        box_nms_thresh=0.7,
         box_detections_per_img=500,
         # min_size=100,
         # max_size=4000,

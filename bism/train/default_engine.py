@@ -20,12 +20,13 @@ from bism.utils.distributed import setup_process
 from bism.train.merged_transform import transform_from_cfg
 from bism.train.dataloader import dataset, MultiDataset, generic_colate, torchvision_colate
 from bism.utils.visualization import write_progress, write_torchvision_progress
-from bism.targets import _valid_targets
+from bism.utils.save import return_script_text
+import bism
 import logging
 
 Dataset = Union[Dataset, DataLoader]
 
-from bism.config.valid import _valid_optimizers, _valid_loss_functions, _valid_lr_schedulers
+from bism.config.valid import _valid_optimizers, _valid_loss_functions, _valid_lr_schedulers, _valid_targets
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -33,7 +34,19 @@ torch.manual_seed(101196)
 torch.set_float32_matmul_precision('high')
 
 
-def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: CfgNode, logging_level):
+def train(rank: int, port: str, world_size: int, base_model: nn.Module, cfg: CfgNode, logging_level: int):
+    """
+    This is never meant to be called directly. Instead it should be called as part of a DataDistributedParallel
+    pipeline to train a model over multiple GPUs.
+
+    :param rank: which gpu
+    :param port: which port to host DDP on
+    :param world_size: total number of devices to train on
+    :param base_model: preinstantiated model which will be cast to a DDP model
+    :param cfg:
+    :param logging_level:
+    :return:
+    """
     setup_process(rank, world_size, port, backend='nccl')
     device = f'cuda:{rank}'
 
@@ -200,6 +213,7 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
         scheduler.step()
         logging.info(f'Average training loss for epoch {e}: {avg_epoch_loss[-1]}')
 
+        # write progress
         if writer and (rank == 0):
             logging.info(f'writing to train tensorboard for epoch: {e}')
             writer.add_scalar('lr', scheduler.get_last_lr()[-1], e)
@@ -262,6 +276,8 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
                 else:
                     logging.error(
                         f'Attempting to write an output of unknown type to tensorboard during training step: {type(out)=}')
+
+        # update tqdm progrss bar
         if rank == 0:
             epoch_range.desc = f'lr={scheduler.get_last_lr()[-1]:.3e}, Loss (train | val): ' + f'{avg_epoch_loss[-1]:.5f} | {avg_val_loss[-1]:.5f}'
 
@@ -271,13 +287,17 @@ def train(rank: str, port: str, world_size: int, base_model: nn.Module, cfg: Cfg
             state_dict = model.module.state_dict() if hasattr(model, 'module') else model.state_dict()
             torch.save(state_dict, cfg.TRAIN.SAVE_PATH + f'/test_{e}.trch')
 
+    # Save trained model
     if rank == 0:
         state_dict = model.module.state_dict() if hasattr(model, 'module') else model.state_dict()
         constants = {'cfg': cfg,
                      'model_state_dict': state_dict,
                      'optimizer_state_dict': optimizer.state_dict(),
                      'avg_epoch_loss': avg_epoch_loss,
-                     'avg_val_loss': avg_epoch_loss,
+                     'avg_val_loss': avg_val_loss,
+                     'training_scripts': return_script_text(bism.__path__, ext='.py'),
+                     'training_image_data_paths': [f for dataset in merged_train.datasets for f in dataset.files],
+                     'validation_image_data_paths': [f for dataset in merged_validation.datasets for f in dataset.files],
                      }
         try:
             torch.save(constants, f'{cfg.TRAIN.SAVE_PATH}/{os.path.split(writer.log_dir)[-1]}.trch')

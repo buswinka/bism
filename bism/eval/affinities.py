@@ -28,12 +28,16 @@ import time
 
 
 @torch.inference_mode()
-def eval(image_path: str, model_file: str):
+def eval(image_path: str, model_file: str, device: str | None = None):
     """
-    Runs an affinity segmentation on an image.
+    Executes a pretrained BISM model on an arbitrary image. Only should execute if
+    the train target determined by the configuration is 'affinity', i.e. cfg.TRAIN.TARGET == 'affinity'
 
-    :param model_file: Path to a pretrained bism model
-    :return:
+    :param image_path: path to image to analyze
+    :param model_file: path to pretrained model file
+    :param device: hardware accelerator
+
+    :return: None
     """
     tracemalloc.start()
     start = time.time()
@@ -41,7 +45,9 @@ def eval(image_path: str, model_file: str):
     checkpoint = torch.load(model_file, map_location="cpu")
     cfg = checkpoint["cfg"]
 
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    if device is None:
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        device = 'mps' if torch.backends.mps.is_available() else device
 
     logging.info(f"Constructing BISM model")
     base_model: nn.Module = cfg_to_bism_model(cfg)  # This is our skoots torch model
@@ -128,7 +134,8 @@ def eval(image_path: str, model_file: str):
             f.write(f"Affinities Segmentation Benchmark:\n")
             f.write(f"----------------------------------\n")
             f.write(f"Time: {time.time() - benchmark_start} seconds\n")
-            f.write(f"Memory (current/max): {tracemalloc.get_traced_memory()}\n\n")
+            f.write(f"Current Memory: {tracemalloc.get_traced_memory()[0] / (1024*1024)} [MB]\n\n")
+            f.write(f"Max Memory: {tracemalloc.get_traced_memory()[1] / (1024*1024)} [MB]\n\n")
 
         logging.info(
             f"Saving instance mask to: {filename_without_extensions}_segmentaiton_at_{int(thr * 100)}%.zarr"
@@ -149,5 +156,4 @@ if __name__ == "__main__":
     import numpy as np
 
     a = torch.rand((3, 100, 100, 100), dtype=torch.float32).numpy()
-
     out = waterz.agglomerate(a, thresholds=[0.2])

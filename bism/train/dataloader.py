@@ -83,7 +83,7 @@ class dataset(Dataset):
                 image: np.array = image.transpose(-1, 1, 2, 0)
                 image: np.array = image[[2], ...] if image.shape[0] > 3 else image
 
-                masks: np.array = masks.transpose(1, 2, 0).astype(np.int32)
+                masks: np.array = masks.transpose(1, 2, 0)[np.newaxis, ...].astype(np.int32)
 
             scale: int = 2 ** 16 if image.max() > 256 else 255  # Our images might be 16 bit, or 8 bit
             scale = scale if image.max() > 1 else 1.
@@ -104,24 +104,12 @@ class dataset(Dataset):
         return len(self.image) * self.sample_per_image
 
     def __getitem__(self, item: int) -> Dict[str, Tensor]:
-        # We might artificially want to sample more times per image
-        # Usefull when larging super large images with a lot of data.
         item = item // self.sample_per_image
 
         with torch.no_grad():
-            data_dict = {'image': self.image[item].clone(),
-                         'masks': self.masks[item].clone()}
-
-            # Transformation pipeline
-            with torch.no_grad():
-                # cache should always have something in it...
-                data_dict = self.transforms(data_dict)  # Apply transforms and add to cache
-
-        for k in data_dict:
-            if isinstance(data_dict[k], torch.Tensor):
-                data_dict[k] = data_dict[k].to(self.device, non_blocking=True)
-            elif isinstance(data_dict[k], dict):
-                data_dict[k] = {key: value.to(self.device, non_blocking=True) for (key, value) in data_dict[k].items()}
+            data_dict = {'image': self.image[item],
+                         'masks': self.masks[item]}
+            data_dict = self.transforms(data_dict)
 
         return data_dict
 
@@ -132,6 +120,11 @@ class dataset(Dataset):
         self.image = [x.to(device) for x in self.image]
         self.masks = [x.to(device) for x in self.masks]
 
+        return self
+
+    def map(self, fn: Callable[[Tensor], Tensor]):
+        self.image = [fn(x) for x in self.image]
+        self.masks = [fn(x) for x in self.masks]
         return self
 
     def cuda(self):
@@ -293,6 +286,11 @@ class MultiDataset(Dataset):
     def to(self, device: str):
         for i in range(self.num_datasets):
             self.datasets[i].to(device)
+        return self
+
+    def map(self, fn: Callable[[Tensor], Tensor]):
+        for i in range(self.num_datasets):
+            self.datasets[i].map(fn)
         return self
 
     def cuda(self):

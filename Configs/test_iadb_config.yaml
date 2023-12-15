@@ -1,0 +1,42 @@
+TRAIN:
+  TARGET: 'iadb'
+  TRAIN_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/bism/data/generate']
+  VALIDATION_DATA_DIR: []
+  SAVE_PATH: '/home/chris/Dropbox (Partners HealthCare)/bism/trained_model_files/generative'
+  NUM_EPOCHS: 7000
+  N_WARMUP: 100
+  SAVE_INTERVAL: 10000
+  SCHEDULER_T0: 7001
+  STORE_DATA_ON_GPU: True
+  PRETRAINED_MODEL_PATH: ''
+  TRAIN_BATCH_SIZE: 6
+  TRAIN_SAMPLE_PER_IMAGE: [64]
+  VALIDATION_BATCH_SIZE: 0
+  VALIDATION_SAMPLE_PER_IMAGE: []
+  LOSS_FN: 'iadb'
+  VALIDATE_EPOCH_SKIP: 100
+  LEARNING_RATE: 1e-4
+
+SYSTEM:
+  NUM_GPUS: 2
+
+MODEL:
+  IN_CHANNELS: 2
+  OUT_CHANNELS: 1
+  MODEL: "generic"
+  BACKBONE: "bism_unet3d_spade"
+  BLOCK: 'unet_block3d'
+  COMPILE: True
+  OUTPUT_ACTIVATIONS: ['tanh']
+
+TARGET:
+  IADB:
+    MASK_CHANNELS: 1
+
+AUGMENTATION:
+  FLIP_RATE: 0.5
+  BRIGHTNESS_RATE: 0.0
+  AFFINE_RATE: 0.3
+  CONTRAST_RATE: 0.0
+  NOISE_RATE: 0.0
+

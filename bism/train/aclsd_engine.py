@@ -18,7 +18,7 @@ from tqdm import trange
 from copy import deepcopy
 from yacs.config import CfgNode
 
-from bism.targets import _valid_targets
+from bism.config.valid import _valid_targets
 from bism.train.dataloader import dataset, MultiDataset, generic_colate as colate
 from bism.train.merged_transform import transform_from_cfg
 from bism.utils.distributed import setup_process
@@ -332,8 +332,8 @@ def train(rank: str, port: str, world_size: int, base_model: Tuple[nn.Module, nn
             "aff_optimizer_state_dict": aff_optimizer.state_dict(),
             "avg_lsd_epoch_loss": avg_lsd_epoch_loss,
             "avg_aff_epoch_loss": avg_aff_epoch_loss,
-            "avg_lsd_val_loss": avg_lsd_epoch_loss,
-            "avg_aff_val_loss": avg_aff_epoch_loss,
+            "avg_lsd_val_loss": avg_lsd_val_loss,
+            "avg_aff_val_loss": avg_aff_val_loss,
         }
 
         try:

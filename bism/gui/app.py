@@ -13,6 +13,7 @@ from PySide6.QtCore import *
 from PySide6.QtGui import *
 from PySide6.QtWidgets import *
 from yacs.config import CfgNode
+import math
 
 import bism.eval.run
 
@@ -24,22 +25,28 @@ from matplotlib.figure import Figure
 
 class MplCanvas(FigureCanvasQTAgg):
 
-    def __init__(self, parent=None, width=5, height=4, dpi=100):
-        fig = Figure(figsize=(width, height), dpi=dpi, frameon=False, layout='constrained')
+    def __init__(self, parent=None, width=5, height=4, dpi=300):
+        fig = Figure(figsize=(width, height), dpi=dpi, frameon=False, layout='constrained', facecolor='red')
         self.axes = fig.add_subplot(111)
-        self.axes.use_sticky_edges = True
 
         super(MplCanvas, self).__init__(fig)
+        self.axes.use_sticky_edges = True
 
-        self.setMaximumHeight(150)
-        self.setMinimumHeight(10)
+        fig.set_facecolor("none")
+        self.setStyleSheet("background-color:rgba(236,236,236,0);")
+
+
+        self.setMaximumHeight(200)
+        self.setMinimumHeight(50)
 
 class ModelCard(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super(ModelCard, self).__init__()
 
         self.tree = QTreeWidget()
+        self.tree.setHeaderLabel('Configuration')
         self.plot = MplCanvas(self, width=50, height=50, dpi=100)
+        self.plot.figure.set_edgecolor('green')
         self.file = None
 
         self.p = None
@@ -73,7 +80,9 @@ class ModelCard(QWidget):
             self.p.readyReadStandardError.connect(self.handle_stderr)
             self.p.stateChanged.connect(self.handle_state)
             self.p.finished.connect(self.process_finished)  # Clean up
-            self.p.start('python', ['../eval', '-i', file_path, '-m', self.file, '--log', '2'])
+
+            dir_path = os.path.dirname(os.path.realpath(__file__))
+            self.p.start('python', [os.path.join(dir_path,'../eval'), '-i', file_path, '-m', self.file, '--log', '2', '--device', 'cpu'])
 
     def message(self, s):
         self.text.appendPlainText(s)
@@ -147,15 +156,29 @@ class ModelCard(QWidget):
         dict = self.convert_to_dict(cfg, [])
         self.fill_widget(self.tree, dict)
 
-    def plotLoss(self, loss: List[float]):
-
+    def plotLoss(self, loss: List[float], color: str):
+        loss = loss[1::]
         ax = self.plot.axes
         num_epoch = len(loss)
-        epocs = list(range(num_epoch))
-        ax.semilogy(epocs, loss)
 
+        def mean(l: List):
+            return sum(l) / len(l)
+
+
+        window_len = 12
+        epocs = list(range(num_epoch))
+        moving_average = [mean(loss[i-window_len:i]) for i in range(window_len, len(loss))]
+
+        ax.plot(epocs, loss, alpha=0.3, c=color)
+        ax.plot(epocs[window_len::], moving_average, c=color)
+        ax.set_yscale('log')
+        ax.set_title('Training Loss')
         ax.set_xlabel('Epoch')
-        ax.set_ylabel('Loss')
+        ax.set_ylabel('Loss (Log)')
+
+        for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                     ax.get_xticklabels() + ax.get_yticklabels() + ax.yaxis.get_minorticklabels()):
+            item.set_fontsize(8)
 
 
 class MainApplication(QMainWindow):
@@ -197,8 +220,8 @@ class MainApplication(QMainWindow):
 
             widget.setFile(path)
             widget.setTextFromCfg(cfg)
-            widget.plotLoss(sd['avg_epoch_loss'])
-            # widget.plotLoss(sd['avg_val_loss'])
+            widget.plotLoss(sd['avg_epoch_loss'], 'C0')
+            widget.plotLoss(sd['avg_val_loss'], 'C1')
 
 
 

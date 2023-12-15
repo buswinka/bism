@@ -34,3 +34,10 @@ class ConcatConv2D(nn.Module):
 
     def __repr__(self):
         return f'ConcatConv2d[in_channels: {self._in_channels}, out_channels: {self._out_channels}]'
+
+
+if __name__ == "__main__":
+    a = torch.compile(ConcatConv3D(2,3).cuda(), mode='max-autotune')
+    x, y = torch.rand((1,1,300,300,20)).cuda(), torch.rand((1,1,300,300,20)).cuda()
+    a(x,y)
+

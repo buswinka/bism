@@ -13,30 +13,43 @@ from bism.utils.io import imread
 from torch.cuda.amp import GradScaler, autocast
 from tqdm import tqdm
 
+import tracemalloc
+import time
+
 
 @torch.no_grad()
-def eval(image_path: str, model_file: str):
+def eval(image_path: str, model_file: str, device: str | None):
     """
-    Runs an affinity segmentation on an image.
+    Executes a pretrained BISM model on an arbitrary image. Only should exectue if
+    the train target determined by the configuration is 'generic', i.e. cfg.TRAIN.TARGET == 'generic'
 
-    :param model_file: Path to a pretrained bism model
-    :return:
+    will silently save the output to {image_path}_out.tif
+
+    :param image_path: path to image to analyze
+    :param model_file: path to pretrained model file
+    :param device: hardware accelerator
+
+    :return: None
     """
+
+    tracemalloc.start()
+    start = time.time()
+
     logging.info(f"Loading model file: {model_file}")
     checkpoint = torch.load(model_file, map_location="cpu")
     cfg = checkpoint["cfg"]
-    print(cfg)
 
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    device = 'mps' if torch.backends.mps.is_available() else device
+    if device is None:
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        device = 'mps' if torch.backends.mps.is_available() else device
 
     logging.info(f"Constructing BISM model")
-    if "maskrcnn" not in cfg.MODEL.BACKBONE:
-        base_model: nn.Module | List[nn.Module] = cfg_to_bism_model(
-            cfg
-        )  # This is our skoots torch model
-    else:
-        base_model: nn.Module = cfg_to_torchvision_model(cfg)
+
+    base_model: nn.Module | List[nn.Module] = (
+        cfg_to_bism_model(cfg)
+        if "maskrcnn" not in cfg.MODEL.BACKBONE
+        else cfg_to_torchvision_model(cfg)
+    )
 
     state_dict = (
         checkpoint
@@ -140,7 +153,17 @@ def eval(image_path: str, model_file: str):
 
     logging.info(f"Saving Output to: {filename_without_extensions}_out_.tif")
 
+    model_filename_without_extension = model_file.rstrip('.yaml')
+
+    with open(f"{model_filename_without_extension}_benchmark.txt", "w") as f:
+        f.write(f"Generic Segmentation Benchmark:\n")
+        f.write(f'Model File: {model_file}')
+        f.write(f"Time: {time.time() - start} seconds\n")
+        f.write(f"Current Memory Usage: {tracemalloc.get_traced_memory()[0] / (1024 * 1024)} [MB]\n\n")
+        f.write(f"Max Memory Usage: {tracemalloc.get_traced_memory()[1] / (1024 * 1024)} [MB]\n\n")
+
     io.imsave(
         f"{filename_without_extensions}_out.tif",
         modelout[-1, ...].cpu().float().numpy(),
     )
+    return modelout[-1, ...].cpu().float()

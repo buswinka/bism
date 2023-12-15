@@ -22,7 +22,7 @@ class Generic(nn.Module):
         self.backbone = backbone
         self.activation: List[Callable[[Tensor], Tensor]] = activations
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, *args) -> Tensor:
         """
         Forward pass applying each activation to each channel.
 
@@ -30,7 +30,7 @@ class Generic(nn.Module):
         :return: output of backbone with activations applied
         """
 
-        x: Tensor = self.backbone(x)
+        x: Tensor = self.backbone(*args)
 
         for ind, activation in enumerate(self.activation):
             if activation is not None:
@@ -48,10 +48,12 @@ class Generic(nn.Module):
 
 
 if __name__=="__main__":
-    x = torch.rand((1, 1, 100, 100, 10))
-    backbone = nn.Conv3d(1, 3, 3, 1, 1)
-    activations = [nn.ReLU(), nn.Sigmoid(), nn.Tanh()]
+    from bism.backends.unet_conditional_difusion import UNet_SPADE_3D
+    x = torch.rand((1, 2, 300, 300, 20)).cuda()
+    y = torch.rand((1, 1, 300, 300, 20)).cuda()
+    backbone = UNet_SPADE_3D(in_channels=2, out_channels=1, mask_channels=1)
+    activations = [nn.Tanh()]
 
-    model = Generic(backbone=backbone, activations=activations)
 
-    out = model(x)
+    model = torch.compile(Generic(backbone=backbone, activations=activations).cuda(), mode='max-autotune')
+    out = model(x, y)

@@ -16,26 +16,29 @@ import torch.optim.swa_utils
 from bism.models.construct import cfg_to_bism_model
 from bism.utils.io import imread
 from tqdm import tqdm
-import fastremap
 
-import numpy as np
 import logging
 
-from typing import List, Tuple, Callable, Union, OrderedDict, Optional, Dict
 
 @torch.no_grad()
-def eval(image_path: str, model_file: str):
+def eval(image_path: str, model_file: str, device: str | None = None):
     """
-    Runs an affinity segmentation on an image.
+    Executes a pretrained BISM model on an arbitrary image. Only should execute if
+    the train target determined by the configuration is 'lsd', i.e. cfg.TRAIN.TARGET == 'lsd'
 
-    :param model_file: Path to a pretrained bism model
-    :return:
+    :param image_path: path to image to analyze
+    :param model_file: path to pretrained model file
+    :param device: hardware accelerator
+
+    :return: None
     """
     logging.info(f'Loading model file: {model_file}')
     checkpoint = torch.load(model_file, map_location='cpu')
     cfg = checkpoint['cfg']
 
-    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+    if device is None:
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        device = 'mps' if torch.backends.mps.is_available() else device
 
     logging.info(f'Constructing BISM model')
     base_model: nn.Module = cfg_to_bism_model(cfg)  # This is our skoots torch model

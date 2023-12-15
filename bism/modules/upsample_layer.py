@@ -1,6 +1,6 @@
 import torch
 from torch import Tensor
-from .layer_norm import LayerNorm
+from bism.modules.layer_norm import LayerNorm
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Optional, Tuple
@@ -42,3 +42,12 @@ class UpSampleLayer2D(nn.Module):
         x = self.norm(x)
         x = self.compress(x)
         return x
+
+if __name__ == '__main__':
+    a = torch.compile(
+        UpSampleLayer3D(1, 2).cuda(),
+        mode='max-autotune'
+    )
+
+    a(torch.rand((1,1,150,150,10)).cuda(), (1,1,300,300,20))
+

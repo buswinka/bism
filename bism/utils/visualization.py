@@ -117,7 +117,7 @@ def write_progress(
 
     img_list = [_a, _b]
 
-    c = target.shape[1]
+    c = target.shape[1] if target else out.shape[1]
 
     if cfg is not None and cfg.TRAIN.TARGET in [
         "affinities",
@@ -125,9 +125,13 @@ def write_progress(
         "aclsd",
         "omnipose",
     ]:
-        img_list.append(target[0, c - 3 : c, ..., 7].float().cpu())
-        img_list.append(out[0, c - 3 : c, ..., 7].float().cpu())
+        if target is not None:
+            img_list.append(target[0, c - 3 : c, ..., 7].float().cpu())
+
+        if out is not None:
+            img_list.append(out[0, c - 3 : c, ..., 7].float().cpu())
         c -= 3
+
 
     if cfg is not None and cfg.TRAIN.TARGET in ["lsd", "mtlsd", "aclsd"]:
         img_list.append(target[0, 0:3, ..., 7].float().cpu())
@@ -145,8 +149,10 @@ def write_progress(
 
     # catch anything thats left.
     for index in range(c):
-        img_list.append(target[0, [index], ..., 7].expand(3, -1, -1).float().cpu())
-        img_list.append(out[0, [index], ..., 7].expand(3, -1, -1).float().cpu())
+        if target is not None:
+            img_list.append(target.float().cpu()[0, [index], ..., 7].expand(3, -1, -1))
+        if out is not None:
+            img_list.append(out.float().cpu()[0, [index], ..., 7].expand(3, -1, -1))
 
     _img = make_grid(img_list, nrow=2, normalize=True, scale_each=True)
 
