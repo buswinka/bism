@@ -5,27 +5,29 @@ from functools import partial
 from statistics import mean
 from typing import Tuple, Callable, Union, Dict
 
-import bism.loss.iadb
-import bism.loss.iadb
-import bism.utils
 import torch
 import torch.nn as nn
 import torch.optim.lr_scheduler
 import torch.optim.swa_utils
-from bism.train.dataloader import (
-    dataset,
-    MultiDataset,
-    generic_colate,
-)
-from bism.train.merged_transform import transform_from_cfg
-from bism.utils.distributed import setup_process
-from bism.utils.visualization import write_progress
 from torch import Tensor
 from torch.cuda.amp import GradScaler, autocast
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import trange
 from yacs.config import CfgNode
+
+import bism.loss.iadb
+import bism.loss.iadb
+import bism.utils
+from bism.train.dataloader import (
+    dataset,
+    MultiDataset,
+    generic_colate,
+)
+from bism.train.merged_transform import TransformFromCfg
+from bism.targets.iadb import IADBTarget
+from bism.utils.distributed import setup_process
+from bism.utils.visualization import write_progress
 
 Dataset = Union[Dataset, DataLoader]
 
@@ -38,12 +40,16 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+os.environ["TORCH_CPP_LOG_LEVEL"] = "INFO"
 logging.basicConfig(level=logging.DEBUG)
 
 torch.manual_seed(101196)
-torch.set_float32_matmul_precision("high")
+torch.set_float32_matmul_precision("medium")
 
 import torch._dynamo
+
+torch._dynamo.config.verbose = True
+torch._dynamo.config.suppress_errors = True
 
 
 @torch.no_grad()
@@ -60,14 +66,14 @@ def denoise(model: nn.Module, mask: Tensor, T: int = 128) -> Tensor:
     :param T: Number of de-noising steps
     :return: denoised image
     """
-    model.eval()
-    img = torch.randn_like(mask)
-    for t in range(T):
-        alpha = t / T * torch.ones_like(img)
-        x = torch.cat((img, alpha), dim=1)
-        img = img + 1 / T * model(x, mask)
 
-    model.train()
+    img = torch.randn_like(mask, memory_format=torch.channels_last_3d)
+    alpha = torch.zeros_like(img, memory_format=torch.channels_last_3d)
+    for t in range(T):
+        # alpha = t/T * torch.ones_like(img, memory_format=torch.channels_last_3d)
+        alpha.fill_(t/T)
+        x = torch.cat((img, alpha), dim=1)
+        img = img + 1/T * model(x, mask)
 
     return img
 
@@ -113,31 +119,25 @@ def train(
         force=True,
     )
 
-    base_model = base_model.to(device)
+    base_model = base_model.train().to(device).float().to(memory_format=torch.channels_last_3d)
     base_model = torch.nn.parallel.DistributedDataParallel(base_model)
 
     if int(torch.__version__[0]) >= 2:
-        logging.info(f"compiling model with torch.inductor")
+        logging.info(
+            f"{'' if cfg.MODEL.COMPILE else 'not '}compiling model with torch.inductor"
+        )
         model = torch.compile(
             base_model,
-            options={
-                "epilogue_fusion": True,
-                "max_autotune": True,
-                "tune_layout": True,
-                # "aggressive_fusion": True,
-                # "max_fusion_size": 128,
-                "triton.max_tiles": 3,
-            },
+            mode="max-autotune",
             disable=not cfg.MODEL.COMPILE,
-        )
-        torch._dynamo.reset()
+        ).to(memory_format=torch.channels_last_3d)
+        # torch._dynamo.reset()
+
     else:
-        model = base_model
+        compiled_model = base_model
 
     colate = generic_colate
-    augmentations: Callable[[Dict[str, Tensor]], Dict[str, Tensor]] = partial(
-        transform_from_cfg, cfg=cfg, device=device
-    )
+    augmentations: nn.Module = TransformFromCfg(cfg=cfg, device="cpu")
 
     # INIT DATA ----------------------------
     _datasets = []
@@ -155,7 +155,7 @@ def train(
                 pad_size=10,
             )
             .map(lambda x: x.mul(255).float().clamp(0, 255).round().to(torch.uint8))
-            .to(_device)
+            .pin_memory()
         )
 
     merged_train = MultiDataset(*_datasets)
@@ -163,10 +163,11 @@ def train(
     train_sampler = torch.utils.data.distributed.DistributedSampler(merged_train)
     dataloader = DataLoader(
         merged_train,
-        num_workers=0,
+        num_workers=8,
+        collate_fn=generic_colate,
         batch_size=cfg.TRAIN.TRAIN_BATCH_SIZE,
-        sampler=train_sampler,
-        collate_fn=colate,
+        prefetch_factor=4,
+        pin_memory=True,
     )
 
     # INIT FROM CONFIG ----------------------------
@@ -192,7 +193,7 @@ def train(
         base_model.parameters(),
         lr=cfg.TRAIN.LEARNING_RATE,
         weight_decay=cfg.TRAIN.WEIGHT_DECAY,
-        fused=True,
+        # fused=True,
     )
     scheduler = _valid_lr_schedulers[cfg.TRAIN.SCHEDULER](
         optimizer, T_0=cfg.TRAIN.SCHEDULER_T0
@@ -200,33 +201,12 @@ def train(
     scaler = GradScaler(enabled=cfg.TRAIN.MIXED_PRECISION)
 
     # This is different from other engines as we want to compile and the other dict index thing threw an error
-    _loss_fn = bism.loss.iadb.iadb()
-    loss_fn = torch.compile(_loss_fn)
+    loss_fn = bism.loss.iadb.iadb()
 
-    target_fn: Callable[[Tensor, Tensor], Tuple[Tensor, Tensor, Tensor]] = partial(
-        torch.compile(_valid_targets[cfg.TRAIN.TARGET]), cfg=cfg
-    )
+    target_fn = IADBTarget().set_device(device).set_dtype(torch.float)
 
-    # Save each loss value in a list...
     avg_epoch_loss = [-1]
     avg_val_loss = [-1]
-
-    # WARMUP LOOP ----------------------------
-    logging.info("Warmup...")
-    for images, masks in dataloader:
-        blended, noise, masks = target_fn(images, masks)
-        break
-    for _ in trange(cfg.TRAIN.N_WARMUP, desc="warmup: "):
-        optimizer.zero_grad(set_to_none=True)
-        with autocast(enabled=cfg.TRAIN.MIXED_PRECISION):  # Saves Memory!
-            # target_fn does the blending
-            out: Tensor = model(blended, masks)
-            loss: Tensor = loss_fn(out, images, noise)
-
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
-
 
     # TRAIN LOOP ----------------------------
     logging.info("Training...")
@@ -249,11 +229,17 @@ def train(
                 train_sampler.set_epoch(e)
 
             for niter, (images, masks) in enumerate(dataloader):
+                images = images.to(device, non_blocking=True).mul(2).sub(1)
+                masks = masks.to(device, non_blocking=True)
+
                 optimizer.zero_grad(set_to_none=True)
-                with autocast(enabled=cfg.TRAIN.MIXED_PRECISION):  # Saves Memory!
+                with autocast(enabled=False):  # Saves Memory!
                     # target_fn does the blending
                     blended, noise, masks = target_fn(images, masks)
+
                     out: Tensor = model(blended, masks)
+                    torch.cuda.synchronize(device)  # why do we have to synchronize here?
+
                     loss: Tensor = loss_fn(out, images, noise)
 
                 scaler.scale(loss).backward()
@@ -282,22 +268,24 @@ def train(
                 logging.info(f"writing to train tensorboard for epoch: {e}")
                 writer.add_scalar("lr", scheduler.get_last_lr()[-1], e)
                 writer.add_scalar("Loss/train", avg_epoch_loss[-1], e)
+                writer.add_scalar("Loss/train_batch_avg", avg_epoch_loss[-1]/cfg.TRAIN.TRAIN_BATCH_SIZE, e)
 
             # # Validation Step
-            if e % cfg.TRAIN.VALIDATE_EPOCH_SKIP == 0:
-                with autocast(enabled=cfg.TRAIN.MIXED_PRECISION):  # Saves Memory!
-                    if rank == 0:
-                        img = denoise(model, masks.gt(0.5).float())
-                        write_progress(
-                            writer=writer,
-                            tag="Denoise",
-                            cfg=cfg,
-                            epoch=e,
-                            images=images,
-                            masks=masks,
-                            target=None,
-                            out=img,
-                        )
+            if e % cfg.TRAIN.VALIDATE_EPOCH_SKIP == 0 and rank == 0:
+
+                img = denoise(model, masks.gt(0.5).float())
+                _min, _max = img.min(), img.max()
+
+                write_progress(
+                    writer=writer,
+                    tag="Denoise",
+                    cfg=cfg,
+                    epoch=e,
+                    images=images,
+                    masks=masks,
+                    target=None,
+                    out=img.add(-1 * _min).div(_max),
+                )
 
             # update tqdm progrss bar
             if rank == 0:

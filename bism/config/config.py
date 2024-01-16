@@ -80,6 +80,14 @@ _C.TRAIN.AUTOGRAD_EMIT_NVTX = False
 _C.TRAIN.AUTOGRAD_DETECT_ANOMALY = False
 
 
+## this forces the transform to cast the input data_dict
+## to a certain device for calculations. Useful if using dataloader prefetch
+_C.TRAIN.TRANSFORM_DEVICE = 'default' # or 'cpu'
+_C.TRAIN.DATASET_OUTPUT_DEVICE = 'default' # or 'cpu'
+_C.TRAIN.DATALOADER_NUM_WORKERS = 0
+_C.TRAIN.DATALOADER_PREFETCH_FACTOR = 0
+
+
 # Augmentation
 _C.AUGMENTATION = CN()
 _C.AUGMENTATION.CROP_WIDTH = 300

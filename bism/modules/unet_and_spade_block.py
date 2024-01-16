@@ -2,7 +2,7 @@ import torch
 from torch import Tensor
 from typing import List, Tuple, Optional, Union
 import torch.nn as nn
-from bism.modules.layer_norm import LayerNorm
+from bism.modules.spade import SPADE2D, SPADE3D
 from bism.modules.drop_path import DropPath
 import warnings
 import torch.utils.checkpoint
@@ -19,7 +19,7 @@ import torch.utils.checkpoint
 """
 
 
-class Block3D(nn.Module):
+class DoubleSpadeBlock3D(nn.Module):
     """
     Unet Block.
     """
@@ -27,6 +27,7 @@ class Block3D(nn.Module):
     def __init__(
         self,
         *,
+        mask_channels: int,
         in_channels: Optional[int] = None,
         out_channels: Optional[int] = None,
         dim: Optional[int] = None,
@@ -36,7 +37,9 @@ class Block3D(nn.Module):
         drop_path: Optional[float] = None,
         layer_scale_init_value: Optional[float] = None,
     ) -> None:
-        super(Block3D, self).__init__()
+        super(DoubleSpadeBlock3D, self).__init__()
+
+        self.mask_channels = mask_channels
 
         if dim is None:
             self.in_channels = in_channels
@@ -59,7 +62,7 @@ class Block3D(nn.Module):
         )
         padding = tuple([k // 2 for k in kernel_size])
 
-        self.conv = nn.Conv3d(
+        self.conv_0 = nn.Conv3d(
             self.in_channels,
             self.out_channels,
             kernel_size=kernel_size,
@@ -68,7 +71,23 @@ class Block3D(nn.Module):
             dilation=dilation,
             bias=False
         )  # depthwise conv
-        self.norm = nn.BatchNorm3d(self.out_channels)
+
+        self.conv_1 = nn.Conv3d(
+            self.out_channels,
+            self.out_channels,
+            kernel_size=kernel_size,
+            padding=padding,
+            groups=1,
+            dilation=dilation,
+            bias=False
+        )  # depthwise conv
+
+        self.conv_s = nn.Conv3d(self.in_channels, self.out_channels, kernel_size=1, bias=False)
+
+        self.norm_0 = SPADE3D(mask_channels=self.mask_channels, tensor_channels=self.in_channels)
+        self.norm_1 = SPADE3D(mask_channels=self.mask_channels, tensor_channels=self.out_channels)
+        self.norm_s = SPADE3D(mask_channels=self.mask_channels, tensor_channels=self.in_channels)
+
         self.act = activation() if activation else nn.GELU()
         # self.act = torch.utils.checkpoint.checkpoint()
 
@@ -76,17 +95,28 @@ class Block3D(nn.Module):
         self.out_channels = out_channels
 
     def __repr__(self):
-        return f"UNet Block[in_channels: {self.in_channels}, out_channels: {self.out_channels}]"
+        return f"UNetSpadeDoubleBlock[in_channels: {self.in_channels}, out_channels: {self.out_channels}, mask_channels: {self.mask_channels}]"
 
-    def forward(self, x: Tensor) -> Tensor:
-        x = self.conv(x)
-        x = self.norm(x)
-        x = self.act(x)#cond, use_reentrant=False) # checkpoint can save memory?
+    def forward(self, x_and_mask: Tensor) -> Tensor:
+        """
+        accepts concatenated input tensor and mask. We expect the last N channels to be the mask
 
-        return x
+        :param x_and_mask: self.in_channels + self.
+        :return:
+        """
+        x, mask = x_and_mask[:, 0:self.in_channels, ...], x_and_mask[:, self.in_channels::, ...]
+
+        x = x.contiguous(memory_format=torch.channels_last_3d)
+        mask = mask.contiguous(memory_format=torch.channels_last_3d)
+
+        skip = self.conv_s(self.norm_s(x, mask))
+        x = self.conv_0(self.act(self.norm_0(x, mask)))
+        x = self.conv_1(self.act(self.norm_1(x, mask)))
+
+        return torch.concat((x + skip, mask), dim=1)
 
 
-class Block2D(nn.Module):
+class DoubleSpadeBlock2D(nn.Module):
     """
     Unet Block.
     """
@@ -103,7 +133,7 @@ class Block2D(nn.Module):
         drop_path: Optional[float] = None,
         layer_scale_init_value: Optional[float] = None,
     ) -> None:
-        super().__init__()
+        super(DoubleSpadeBlock2D, self).__init__()
 
         if dim is None:
             self.in_channels = in_channels
@@ -143,6 +173,7 @@ class Block2D(nn.Module):
         self.out_channels = out_channels
 
     def forward(self, x: Tensor) -> Tensor:
+        raise NotImplementedError('doublespadeblock2d not implemented.')
         x = self.conv(x)
         x = self.norm(x)
         x = self.act(x)
@@ -152,5 +183,7 @@ class Block2D(nn.Module):
 
 if __name__ == "__main__":
 
-    b = torch.compile(Block3D(in_channels=1, out_channels=3).cuda(), mode="max-autotune")
-    b(torch.rand((1, 1, 300, 300, 20)).cuda())
+    b = torch.compile(DoubleSpadeBlock3D(in_channels=1, out_channels=3).cuda(), mode="max-autotune", disable=True)
+    b(torch.rand((1, 1, 300, 300, 20)).cuda(),
+      torch.rand((1, 1, 300, 300, 20)).cuda())
+

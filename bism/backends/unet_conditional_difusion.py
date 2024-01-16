@@ -6,8 +6,8 @@ import torch.nn as nn
 from torch import Tensor
 
 from bism.modules.concat import ConcatConv2D, ConcatConv3D
-from bism.modules.spade import SPADE3D, SPADE2D
-from bism.modules.unet_block import Block2D, Block3D
+from bism.modules.spade import SPADE2D
+from bism.modules.unet_and_spade_block import DoubleSpadeBlock3D, DoubleSpadeBlock2D
 from bism.modules.upsample_layer import UpSampleLayer3D, UpSampleLayer2D
 
 
@@ -25,17 +25,17 @@ class UNet_SPADE_ND(nn.Module):
         spatial_dim: int = 2,
         *,
         dims: Optional[List[int]] = (32, 64, 128, 64, 32),  # [16, 32, 64, 32, 16],
-        depths: Optional[List[int]] = (2, 2, 2, 2, 2),  # [1, 2, 3, 2, 1],
+        depths: Optional[List[int]] = (1, 1, 1, 1, 1),  # [1, 2, 3, 2, 1],
         kernel_size: Optional[Union[Tuple[int], int]] = 3,
         drop_path_rate: Optional[float] = None,
         layer_scale_init_value: Optional[float] = None,
         activation: Optional[nn.Module] = nn.ReLU,
-        block: Optional[nn.Module] = Block2D,
+        spade_block: Optional[nn.Module] = DoubleSpadeBlock3D,
         concat_conv: Optional[nn.Module] = ConcatConv2D,
         upsample_layer: Optional[nn.Module] = UpSampleLayer2D,
         normalization: Optional[nn.Module] = None,
         downsample: Optional[nn.Module] = nn.MaxPool2d,
-        spade: Optional[nn.Module] = SPADE2D,
+        # spade: Optional[nn.Module] = SPADE2D,
         name: Optional[str] = "UNetND_SPADE",
     ):
         """
@@ -82,7 +82,7 @@ class UNet_SPADE_ND(nn.Module):
 
         # For repr
         self._activation = str(activation)
-        self._block = str(block)
+        self._block = str(spade_block)
         self._concat_conv = str(concat_conv)
         self._upsample_layer = str(upsample_layer)
         self._normalizatoin = str(normalization)
@@ -97,7 +97,7 @@ class UNet_SPADE_ND(nn.Module):
         convolution = nn.Conv2d if spatial_dim == 2 else nn.Conv3d
 
         # 2D or 3D
-        Block = block
+        Block = spade_block
         ConcatConv = concat_conv
         UpSampleLayer = upsample_layer
 
@@ -115,7 +115,7 @@ class UNet_SPADE_ND(nn.Module):
         for i in range(len(dims) // 2):
             self.downsample_layers.append(downsample(2))
 
-        # ----------------- Down Blocks
+        # ----------------- Down Blocks (SPADE)
         _dims = [in_channels] + list(dims)
         for i in range(len(depths) // 2 + 1):
             stage = []
@@ -124,17 +124,12 @@ class UNet_SPADE_ND(nn.Module):
                     Block(
                         in_channels=_dims[i] if j == 0 else _dims[i + 1],
                         out_channels=_dims[i + 1],
+                        mask_channels=mask_channels,
                         kernel_size=kernel_size,
                         activation=activation,
                     )
                 )
             self.down_blocks.append(nn.Sequential(*stage))
-
-        # ------------------ SPADE
-        for dim in dims[:-1:]:
-            self.spade_blocks.append(
-                spade(in_channels=self.mask_channels, out_channels=dim)
-            )
 
         # ----------------- Upsample layers
         for i in range(len(dims) // 2):
@@ -152,6 +147,7 @@ class UNet_SPADE_ND(nn.Module):
                     Block(
                         out_channels=_dims[i + len(_dims) // 2],
                         in_channels=_dims[i + len(_dims) // 2],
+                        mask_channels=mask_channels,
                         kernel_size=kernel_size,
                         activation=activation,
                     )
@@ -167,8 +163,8 @@ class UNet_SPADE_ND(nn.Module):
                 )
             )
 
-        self.sigmoid = nn.Sigmoid()
-        self.tanh = nn.Tanh()
+        # self.sigmoid = nn.Sigmoid()
+        # self.tanh = nn.Tanh()
 
         self.out_conv = convolution(dims[-1], out_channels, kernel_size=1)
 
@@ -188,16 +184,23 @@ class UNet_SPADE_ND(nn.Module):
         for i, (down, stage) in enumerate(
             zip(self.downsample_layers, self.down_blocks)
         ):
-            x: Tensor = stage(x)
-            x: Tensor = self.spade_blocks[i](x, mask)
+            # for sequential to work, x and mask must be concatenated together, then separated at the end.
+            _mask = torch.nn.functional.interpolate(
+                mask, size=x.shape[2::], mode="nearest"
+            )
+            x: Tensor = stage(torch.concat((x, _mask), dim=1))[
+                :, : -1 * self.mask_channels :, ...
+            ]
 
             shapes.append(x.shape)  # Save shape for upswing of Unet
             steps.append(x)  # Save shape for upswing of Unet
 
             x: Tensor = down(x)
 
-        x: Tensor = self.down_blocks[-1](x)  # bottom of the U
-        x: Tensor = self.spade_blocks[len(self.spade_blocks) // 2](x, mask)
+        _mask = torch.nn.functional.interpolate(mask, size=x.shape[2::], mode="nearest")
+        x: Tensor = self.down_blocks[-1](torch.concat((x, _mask), dim=1))[
+            :, : -1 * self.mask_channels :, ...
+        ]
 
         shapes.append(x.shape)
         shapes.reverse()
@@ -209,9 +212,12 @@ class UNet_SPADE_ND(nn.Module):
             x: Tensor = up(x, shapes[i + 1])
             y: Tensor = steps[-1 - i]
             x: Tensor = cat(x, y)
-            x: Tensor = stage(x)
-
-            x: Tensor = self.spade_blocks[len(self.spade_blocks) // 2 + 1 + i](x, mask)
+            _mask = torch.nn.functional.interpolate(
+                mask, size=x.shape[2::], mode="nearest"
+            )
+            x: Tensor = stage(torch.concat((x, _mask), dim=1))[
+                :, : -1 * self.mask_channels :, ...
+            ]
 
         x: Tensor = self.upsample_layers[-1](x, shapes[-1])
         y: Tensor = steps[-2 - i]
@@ -228,6 +234,7 @@ class UNet_SPADE_ND(nn.Module):
             f"concat={self._concat_conv}]"
         )
 
+
 class UNet_SPADE_3D(UNet_SPADE_ND):
     def __init__(
         self,
@@ -241,7 +248,7 @@ class UNet_SPADE_3D(UNet_SPADE_ND):
         drop_path_rate: Optional[float] = None,
         layer_scale_init_value: Optional[float] = None,
         activation: Optional[nn.Module] = nn.GELU,
-        block: Optional[nn.Module] = Block3D,
+        block: Optional[nn.Module] = DoubleSpadeBlock3D,
         concat_conv: Optional[nn.Module] = ConcatConv3D,
         upsample_layer: Optional[nn.Module] = UpSampleLayer3D,
         normalization: Optional[nn.Module] = None,
@@ -258,12 +265,11 @@ class UNet_SPADE_3D(UNet_SPADE_ND):
             layer_scale_init_value=layer_scale_init_value,
             kernel_size=kernel_size,
             activation=activation,
-            block=block,
+            spade_block=block,
             concat_conv=concat_conv,
             upsample_layer=upsample_layer,
             normalization=normalization,
             downsample=nn.MaxPool3d,
-            spade=SPADE3D,
             name=name,
         )
 
@@ -280,7 +286,7 @@ class UNet_SPADE_2D(UNet_SPADE_ND):
         drop_path_rate: Optional[float] = None,
         layer_scale_init_value: Optional[float] = None,
         activation: Optional[nn.Module] = nn.GELU,
-        block: Optional[nn.Module] = Block2D,
+        block: Optional[nn.Module] = DoubleSpadeBlock2D,
         concat_conv: Optional[nn.Module] = ConcatConv2D,
         upsample_layer: Optional[nn.Module] = UpSampleLayer2D,
         normalization: Optional[nn.Module] = None,
@@ -309,7 +315,8 @@ class UNet_SPADE_2D(UNet_SPADE_ND):
 if __name__ == "__main__":
     model = torch.compile(
         UNet_SPADE_3D(in_channels=2, out_channels=1).cuda(),
-        mode='max-autotune'
+        mode="max-autotune",
+        disable=True,
     )
     a = torch.rand((1, 2, 100, 100, 20)).cuda()
     b = torch.rand((1, 1, 100, 100, 20)).cuda()

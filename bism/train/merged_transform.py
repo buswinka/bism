@@ -1,97 +1,101 @@
+import random
+from typing import Dict, Callable
+
 import torch
+import torch.nn as nn
 import torchvision.transforms.functional as ttf
 from torch import Tensor
-
 from yacs.config import CfgNode
-from typing import Dict, Optional
 
 
-@torch.no_grad()
-@torch.jit.ignore()
-def transform_from_cfg(
-    data_dict: Dict[str, Tensor], cfg: CfgNode, device: Optional[str] = None
-) -> Dict[str, Tensor]:
+def transform_from_cfg(*args, **kwargs):
+    raise RuntimeError('Depreciated function. Please refactor to use bism.train.merged_transform.TransformFromCfg()')
 
-    DEVICE: str = str(data_dict["image"].device) if device is None else device
+class TransformFromCfg(nn.Module):
+    def __init__(self, cfg: CfgNode, device: torch.device, scale: float = 255.0):
+        super(TransformFromCfg, self).__init__()
+        """
+        Why? Apparently a huge amount of overhead is just initializing this from cfg
+        If we preinitalize, then we can save on overhead, to do this, we need a class...
+        Probably a reasonalbe functional way to do this. Ill think on it later
+        
+        """
 
-    # Image should be in shape of [C, H, W, D]
-    CROP_WIDTH = torch.tensor(cfg.AUGMENTATION.CROP_WIDTH, device=DEVICE)
-    CROP_HEIGHT = torch.tensor(cfg.AUGMENTATION.CROP_HEIGHT, device=DEVICE)
-    CROP_DEPTH = torch.tensor(cfg.AUGMENTATION.CROP_DEPTH, device=DEVICE)
+        self.prefix_function = self._identity
+        self.posfix_function = self._identity
 
-    FLIP_RATE = torch.tensor(cfg.AUGMENTATION.FLIP_RATE, device=DEVICE)
+        self.dataset_mean = None
+        self.dataset_std = None
 
-    BRIGHTNESS_RATE = torch.tensor(cfg.AUGMENTATION.BRIGHTNESS_RATE, device=DEVICE)
-    BRIGHTNESS_RANGE = torch.tensor(cfg.AUGMENTATION.BRIGHTNESS_RANGE, device=DEVICE)
+        self.cfg = cfg
 
-    NOISE_GAMMA = torch.tensor(cfg.AUGMENTATION.NOISE_GAMMA, device=DEVICE)
-    NOISE_RATE = torch.tensor(cfg.AUGMENTATION.NOISE_RATE, device=DEVICE)
+        self.DEVICE = device
+        self.SCALE = scale
 
-    FILTER_RATE = torch.tensor(0.5, device=DEVICE)
+        self.CROP_WIDTH = cfg.AUGMENTATION.CROP_WIDTH
+        self.CROP_HEIGHT = cfg.AUGMENTATION.CROP_HEIGHT
 
-    CONTRAST_RATE = torch.tensor(cfg.AUGMENTATION.CONTRAST_RATE, device=DEVICE)
-    CONTRAST_RANGE = torch.tensor(cfg.AUGMENTATION.CONTRAST_RANGE, device=DEVICE)
+        self.CROP_DEPTH = cfg.AUGMENTATION.CROP_DEPTH
 
-    AFFINE_RATE = torch.tensor(cfg.AUGMENTATION.AFFINE_RATE, device=DEVICE)
-    AFFINE_SCALE = torch.tensor(cfg.AUGMENTATION.AFFINE_SCALE, device=DEVICE)
-    AFFINE_YAW = torch.tensor(cfg.AUGMENTATION.AFFINE_YAW, device=DEVICE)
-    AFFINE_SHEAR = torch.tensor(cfg.AUGMENTATION.AFFINE_SHEAR, device=DEVICE)
+        self.FLIP_RATE = cfg.AUGMENTATION.FLIP_RATE
 
-    assert "masks" in data_dict, 'keyword "masks" not in data_dict'
-    assert "image" in data_dict, 'keyword "image" not in data_dict'
+        self.BRIGHTNESS_RATE = cfg.AUGMENTATION.BRIGHTNESS_RATE
+        self.BRIGHTNESS_RANGE = cfg.AUGMENTATION.BRIGHTNESS_RANGE
+        self.NOISE_GAMMA = cfg.AUGMENTATION.NOISE_GAMMA
+        self.NOISE_RATE = cfg.AUGMENTATION.NOISE_RATE
 
-    masks = data_dict["masks"]
-    image = data_dict["image"]
+        self.FILTER_RATE = 0.5
 
-    spatial_dims = masks.ndim - 1
+        self.CONTRAST_RATE = cfg.AUGMENTATION.CONTRAST_RATE
+        self.CONTRAST_RANGE = cfg.AUGMENTATION.CONTRAST_RANGE
 
-    masks = masks.unsqueeze(-1) if masks.ndim == 3 else masks
-    image = image.unsqueeze(-1) if image.ndim == 3 else image
+        self.AFFINE_RATE = cfg.AUGMENTATION.AFFINE_RATE
+        self.AFFINE_SCALE = cfg.AUGMENTATION.AFFINE_SCALE
+        self.AFFINE_SHEAR = cfg.AUGMENTATION.AFFINE_SHEAR
+        self.AFFINE_YAW = cfg.AUGMENTATION.AFFINE_YAW
 
-    # ------------ Random Crop 1
-    extra = 300
-    w = (
-        CROP_WIDTH + extra
-        if CROP_WIDTH + extra <= image.shape[-3]
-        else torch.tensor(image.shape[-3])
-    )
-    h = (
-        CROP_HEIGHT + extra
-        if CROP_HEIGHT + extra <= image.shape[-3]
-        else torch.tensor(image.shape[-2])
-    )
-    d = CROP_DEPTH if CROP_DEPTH <= image.shape[-1] else torch.tensor(image.shape[-1])
+    def _identity(self, *args):
+        return args if len(args) > 1 else args[0]
 
-    # select a random point for croping
-    x0 = torch.randint(0, image.shape[1] - w + 1, (1,), device=DEVICE)
-    y0 = torch.randint(0, image.shape[2] - h + 1, (1,), device=DEVICE)
-    z0 = torch.randint(0, image.shape[3] - d + 1, (1,), device=DEVICE)
+    def _crop1(self, image, masks):
+        masks = masks.unsqueeze(-1) if masks.ndim == 3 else masks
+        image = image.unsqueeze(-1) if image.ndim == 3 else image
 
-    x1 = x0 + w
-    y1 = y0 + h
-    z1 = z0 + d
+        C, X, Y, Z = image.shape
+        # ------------ Random Crop 1
+        extra = 300
+        w = self.CROP_WIDTH + extra if self.CROP_WIDTH + extra <= X else X
+        h = self.CROP_HEIGHT + extra if self.CROP_HEIGHT + extra <= Y else Y
+        d = self.CROP_DEPTH if self.CROP_DEPTH <= Z else Z
 
-    scale: int = 2 ** 16 if image.max() > 256 else 255  # Our images might be 16 bit, or 8 bit
-    scale = scale if image.max() > 1 else 1.0
+        # select a random point for croping
+        x0 = random.randint(0, X - w)
+        y0 = random.randint(0, Y - h)
+        z0 = random.randint(0, Z - d)
 
-    image = image[:, x0:x1, y0:y1, z0:z1].to(DEVICE) / scale
-    masks = masks[:, x0:x1, y0:y1, z0:z1].to(DEVICE)
+        x1 = x0 + w
+        y1 = y0 + h
+        z1 = z0 + d
 
-    # -------------------affine (Cant use baked skeletons)
-    if torch.rand(1, device=DEVICE) < AFFINE_RATE:
-        angle = (AFFINE_YAW[1] - AFFINE_YAW[0]) * torch.rand(
-            1, device=DEVICE
-        ) + AFFINE_YAW[0]
-        shear = (AFFINE_SHEAR[1] - AFFINE_SHEAR[0]) * torch.rand(
-            1, device=DEVICE
-        ) + AFFINE_SHEAR[0]
-        scale = (AFFINE_SCALE[1] - AFFINE_SCALE[0]) * torch.rand(
-            1, device=DEVICE
-        ) + AFFINE_SCALE[0]
+        image = image[:, x0:x1, y0:y1, z0:z1]
+        masks = masks[:, x0:x1, y0:y1, z0:z1]
+
+        if image.device != self.DEVICE:
+            image = image.to(self.DEVICE)
+
+        if masks.device != self.DEVICE:
+            masks = masks.to(self.DEVICE)
+
+        return image, masks
+
+    def _affine(self, image, masks):
+        angle = random.uniform(*self.AFFINE_YAW)
+        shear = random.uniform(*self.AFFINE_YAW)
+        scale = random.uniform(*self.AFFINE_SCALE)
 
         image = ttf.affine(
             image.permute(0, 3, 1, 2).float(),
-            angle=angle.item(),
+            angle=angle,
             shear=[float(shear)],
             scale=scale,
             translate=[0, 0],
@@ -99,77 +103,174 @@ def transform_from_cfg(
 
         masks = ttf.affine(
             masks.permute(0, 3, 1, 2).float(),
-            angle=angle.item(),
+            angle=angle,
             shear=[float(shear)],
             scale=scale,
             translate=[0, 0],
         ).permute(0, 2, 3, 1)
 
-    # ------------ Center Crop 2
-    w = CROP_WIDTH if CROP_WIDTH < image.shape[1] else torch.tensor(image.shape[1])
-    h = CROP_HEIGHT if CROP_HEIGHT < image.shape[2] else torch.tensor(image.shape[2])
-    d = CROP_DEPTH if CROP_DEPTH < image.shape[3] else torch.tensor(image.shape[3])
+        return image, masks
 
-    # Center that instance
-    x0 = torch.randint(0, image.shape[1] - w + 1, (1,), device=DEVICE)
-    y0 = torch.randint(0, image.shape[2] - h + 1, (1,), device=DEVICE)
-    z0 = torch.randint(0, image.shape[3] - d + 1, (1,), device=DEVICE)
+    def _crop2(self, image, masks):
+        C, X, Y, Z = image.shape
+        w = self.CROP_WIDTH if self.CROP_WIDTH < X else X
+        h = self.CROP_HEIGHT if self.CROP_HEIGHT < Y else Y
+        d = self.CROP_DEPTH if self.CROP_DEPTH < Z else Z
 
-    x1 = x0 + w
-    y1 = y0 + h
-    z1 = z0 + d
+        # Center that instance
+        x0 = random.randint(0, X - w)
+        y0 = random.randint(0, Y - h)
+        z0 = random.randint(0, Z - d)
 
-    image = image[:, x0:x1, y0:y1, z0:z1]
-    masks = masks[:, x0:x1, y0:y1, z0:z1]
+        x1 = x0 + w
+        y1 = y0 + h
+        z1 = z0 + d
 
-    # ------------------- x flip
-    if torch.rand(1, device=DEVICE) < FLIP_RATE:
+        image = image[:, x0:x1, y0:y1, z0:z1]
+        masks = masks[:, x0:x1, y0:y1, z0:z1]
+
+        return image, masks
+
+    def _flipX(self, image, masks):
         image = image.flip(1)
         masks = masks.flip(1)
+        return image, masks
 
-    # ------------------- y flip
-    if torch.rand(1, device=DEVICE) < FLIP_RATE:
+    def _flipY(self, image, masks):
         image = image.flip(2)
         masks = masks.flip(2)
+        return image, masks
 
-    # ------------------- z flip
-    if torch.rand(1, device=DEVICE) < FLIP_RATE:
+    def _flipZ(self, image, masks):
         image = image.flip(3)
         masks = masks.flip(3)
+        return image, masks
 
-    # # ------------------- Random Invert
-    if torch.rand(1, device=DEVICE) < BRIGHTNESS_RATE:
-        image = image.sub(1).mul(-1)
+    def _invert(self, image, masks):
+        image.sub_(1).mul_(-1)
+        return image, masks
 
-    # ------------------- Adjust Brightness
-    if torch.rand(1, device=DEVICE) < BRIGHTNESS_RATE:
-        # funky looking but FAST
-        val = torch.empty(image.shape[0], device=DEVICE).uniform_(
-            BRIGHTNESS_RANGE[0], BRIGHTNESS_RANGE[1]
-        )
-        image = image.add(val.reshape(image.shape[0], 1, 1, 1)).clamp(0, 1)
+    def _brightness(self, image, masks):
+        val = random.uniform(*self.BRIGHTNESS_RANGE)
+        # in place ok because flip always returns a copy
+        image = image.add(val)
+        return image, masks
 
-    # ------------------- Adjust Contrast
-    if torch.rand(1, device=DEVICE) < CONTRAST_RATE:
-        contrast_val = (CONTRAST_RANGE[1] - CONTRAST_RANGE[0]) * torch.rand(
-            (image.shape[0]), device=DEVICE
-        ) + CONTRAST_RANGE[0]
+    def _contrast(self, image, masks):
+        contrast_val = random.uniform(*self.CONTRAST_RANGE)
+        # [ C, X, Y, Z ] -> [Z, C, X, Y]
+        image = ttf.adjust_contrast(image.permute(3, 0, 1, 2), contrast_val).permute(1,2,3,0)
 
-        for z in range(image.shape[-1]):
-            image[..., z] = ttf.adjust_contrast(image[..., z], contrast_val[0]).squeeze(
-                0
-            )
+        return image, masks
 
-    # ------------------- Noise
-    if torch.rand(1, device=DEVICE) < NOISE_RATE:
-        noise = torch.rand(image.shape, device=DEVICE) * NOISE_GAMMA
-        image = image.add(noise).clamp(0, 1)
+    def _noise(self, image, masks):
+        noise = torch.rand(image.shape, device=self.DEVICE) * self.NOISE_GAMMA
+        image = image.add(noise)
+        return image, masks
 
-    if spatial_dims == 2:
-        image = image[..., 0]
-        masks = masks[..., 0]
+    def _normalize(self, image, masks):
+        # mean = image.float().mean()
+        # std = image.float().std()
+        mean = image.float().mean() if not self.dataset_mean else self.dataset_mean
+        std = image.float().std() if not self.dataset_std else self.dataset_std
 
-    data_dict["image"] = image
-    data_dict["masks"] = masks
+        image = image.float().sub(mean).div(std)
+        return image, masks
 
-    return data_dict
+    def set_dataset_mean(self, mean):
+        self.dataset_mean = mean
+        return self
+
+    def set_dataset_std(self, std):
+        self.dataset_std = std
+        return self
+
+    @torch.no_grad()
+    def forward(self, data_dict: Dict[str, Tensor]) -> Dict[str, Tensor]:
+
+        assert "masks" in data_dict, 'keyword "masks" not in data_dict'
+        assert "image" in data_dict, 'keyword "image" not in data_dict'
+
+        data_dict = self.prefix_function(data_dict)
+
+        masks = data_dict["masks"]
+        image = data_dict["image"]
+
+        spatial_dims = masks.ndim - 1
+
+        image, masks = self._crop1(image, masks)
+
+        # data_dict['masks'] = masks
+        # data_dict['image'] = image
+
+        # data_dict = self.postcrop_function(data_dict)
+        #
+        # masks = data_dict["masks"]
+        # image = data_dict["image"]
+        #
+
+        # scale: int = 2 ** 16 if image.max() > 256 else 255  # Our images might be 16 bit, or 8 bit
+        # scale = scale if image.max() > 1 else 1.0
+
+        image, masks = self._normalize(image, masks)
+
+        # ------------ Center Crop 2
+        image, masks = self._crop2(image, masks)
+
+        # ------------------- x flip
+        if random.random() < self.FLIP_RATE:
+            image, masks = self._flipX(image, masks)
+
+        # ------------------- y flip
+        if random.random() < self.FLIP_RATE:
+            image, masks = self._flipY(image, masks)
+
+        # ------------------- z flip
+        if random.random() < self.FLIP_RATE:
+            image, masks = self._flipZ(image, masks)
+
+        # # ------------------- Random Invert
+        if random.random() < self.BRIGHTNESS_RATE:
+            image, masks = self._invert(image, masks)
+
+        # ------------------- Adjust Brightness
+        if random.random() < self.BRIGHTNESS_RATE:
+            image, masks = self._brightness(image, masks)
+
+        # ------------------- Adjust Contrast
+        if random.random() < self.CONTRAST_RATE:
+            image, masks = self._contrast(image, masks)
+
+        # ------------------- Noise
+        if random.random() < self.NOISE_RATE:
+            image, masks = self._noise(image, masks)
+
+
+        if spatial_dims == 2:
+            image = image[..., 0]
+            masks = masks[..., 0]
+
+        data_dict["image"] = image
+        data_dict["masks"] = masks
+
+        # assert image.ndim==4
+        # assert masks.ndim==4
+
+        data_dict = self.posfix_function(data_dict)
+
+        return data_dict
+
+    def pre_fn(self, fn: Callable[[Dict[str, Tensor]], Dict[str, Tensor]]):
+        self.prefix_function = fn
+        return self
+
+    def post_fn(self, fn: Callable[[Dict[str, Tensor]], Dict[str, Tensor]]):
+        self.posfix_function = fn
+        return self
+
+    def post_crop_fn(self, fn):
+        self.postcrop_function = fn
+        return self
+
+    def __repr__(self):
+        return f"TransformFromCfg[Device:{self.DEVICE}]\ncfg.AUGMENTATION:\n=================\n{self.cfg.AUGMENTATION}]"

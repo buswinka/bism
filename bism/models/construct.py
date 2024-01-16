@@ -16,62 +16,14 @@ from torchvision.models.detection.mask_rcnn import (
 from torchvision.models.resnet import ResNet50_Weights, resnet50
 from yacs.config import CfgNode
 
-import bism.backends
-import bism.backends.unet_conditional_difusion
-from bism.models.generic import Generic
-from bism.models.lsd import LSDModel
-from bism.models.spatial_embedding import SpatialEmbedding
+from bism.config.valid import *
+
 
 
 def cfg_to_bism_model(cfg: CfgNode) -> nn.Module:
     """utility function to get a bism model from cfg"""
 
-    _valid_backbone_constructors = {
-        "bism_unext": bism.backends.unext.UNeXT_3D,
-        "bism_unext2d": bism.backends.unext.UNeXT_2D,
-        "bism_unet": bism.backends.unet.UNet_3D,
-        "bism_unet2d": bism.backends.unet.UNet_2D,
-        "bism_unet2d_spade": bism.backends.unet_conditional_difusion.UNet_SPADE_2D,
-        "bism_unet3d_spade": bism.backends.unet_conditional_difusion.UNet_SPADE_3D,
-    }
 
-    _valid_model_blocks = {
-        "block3d": bism.modules.convnext_block.Block3D,
-        "block2d": bism.modules.convnext_block.Block2D,
-        'unet_block3d': bism.modules.unet_block.Block3D,
-        'unet_block2d': bism.modules.unet_block.Block2D,
-    }
-
-    _valid_upsample_layers = {
-        "upsamplelayer3d": bism.modules.upsample_layer.UpSampleLayer3D,
-        "upsamplelayer2d": bism.modules.upsample_layer.UpSampleLayer2D,
-    }
-
-    _valid_normalization = {
-        "layernorm": partial(
-            bism.modules.layer_norm.LayerNorm, data_format="channels_first"
-        )
-    }
-
-    _valid_activations = {
-        "gelu": torch.nn.GELU,
-        "relu": torch.nn.ReLU,
-        "silu": torch.nn.SiLU,
-        "selu": torch.nn.SELU,
-        "tanh": torch.nn.Tanh,
-        "sigmoid": torch.nn.Sigmoid,
-    }
-
-    _valid_concat_blocks = {
-        "concatconv3d": bism.modules.concat.ConcatConv3D,
-        "concatconv2d": bism.modules.concat.ConcatConv2D,
-    }
-
-    _valid_models = {
-        "spatial_embedding": SpatialEmbedding,
-        "lsd": LSDModel,
-        "generic": Generic,
-    }
 
     model_config = [
         cfg.MODEL.DIMS,
@@ -105,11 +57,11 @@ def cfg_to_bism_model(cfg: CfgNode) -> nn.Module:
         None,
         None,
         None,
-        _valid_activations,
-        _valid_model_blocks,
-        _valid_concat_blocks,
-        _valid_upsample_layers,
-        _valid_normalization,
+        bism.config.valid._valid_activations,
+        bism.config.valid._valid_model_blocks,
+        bism.config.valid._valid_concat_blocks,
+        bism.config.valid._valid_upsample_layers,
+        bism.config.valid._valid_normalization,
     ]
 
     kwarg = {}
@@ -124,8 +76,8 @@ def cfg_to_bism_model(cfg: CfgNode) -> nn.Module:
         else:
             kwarg[kw] = config
 
-    if cfg.MODEL.BACKBONE in _valid_backbone_constructors:
-        backbone = _valid_backbone_constructors[cfg.MODEL.BACKBONE]
+    if cfg.MODEL.BACKBONE in bism.config.valid._valid_backbone_constructors:
+        backbone = bism.config.valid._valid_backbone_constructors[cfg.MODEL.BACKBONE]
     else:
         raise RuntimeError(
             f"{cfg.MODEL.ARCHITECTURE} is not a valid model constructor, valid options are: {_valid_backbone_constructors.keys()}"
@@ -140,25 +92,25 @@ def cfg_to_bism_model(cfg: CfgNode) -> nn.Module:
                 "The number of output activations must equal the number of output channels"
             )
         activations: List[nn.Module | None] = [
-            _valid_activations[a]() if a is not None else None
+            bism.config.valid._valid_activations[a]() if a is not None else None
             for a in cfg.MODEL.OUTPUT_ACTIVATIONS
         ]
-        model = _valid_models[cfg.MODEL.MODEL](backbone, activations)
+        model = bism.config.valid._valid_models[cfg.MODEL.MODEL](backbone, activations)
         return model
 
     elif cfg.TRAIN.TARGET == "aclsd":
         lsd_backbone = backbone(cfg.MODEL.IN_CHANNELS, 10, **kwarg)
         aff_backbone = backbone(10, 3, **kwarg)
         print("cfg.MODEL.MODEL")
-        lsd_model = _valid_models[cfg.MODEL.MODEL](lsd_backbone)
-        aff_model = _valid_models[cfg.MODEL.MODEL](aff_backbone)
+        lsd_model = bism.config.valid._valid_models[cfg.MODEL.MODEL](lsd_backbone)
+        aff_model = bism.config.valid._valid_models[cfg.MODEL.MODEL](aff_backbone)
 
         return lsd_model, aff_model
 
     else:
         backbone = backbone(cfg.MODEL.IN_CHANNELS, cfg.MODEL.OUT_CHANNELS, **kwarg)
         if cfg.MODEL.MODEL != "generic":
-            model = _valid_models[cfg.MODEL.MODEL](backbone)
+            model = bism.config.valid._valid_models[cfg.MODEL.MODEL](backbone)
         else:
             keys: List[str] = copy(cfg.MODEL.OUTPUT_ACTIVATIONS)
             if len(keys) != cfg.MODEL.OUT_CHANNELS:
@@ -166,10 +118,10 @@ def cfg_to_bism_model(cfg: CfgNode) -> nn.Module:
                     "The number of output activations must equal the number of output channels"
                 )
             activations: List[nn.Module | None] = [
-                _valid_activations[a]() if a is not None else None
+                bism.config.valid._valid_activations[a]() if a is not None else None
                 for a in cfg.MODEL.OUTPUT_ACTIVATIONS
             ]
-            model = _valid_models[cfg.MODEL.MODEL](backbone, activations)
+            model = bism.config.valid._valid_models[cfg.MODEL.MODEL](backbone, activations)
 
         return model
 

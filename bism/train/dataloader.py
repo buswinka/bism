@@ -9,6 +9,7 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 from typing import Tuple, Callable, List, Union, Optional
 import logging
+import math
 
 # basically just skoots
 
@@ -16,12 +17,14 @@ Transform = Callable[[Dict[str, Tensor]], Dict[str, Tensor]]
 
 
 class dataset(Dataset):
-    def __init__(self,
-                 path: Union[List[str], str],
-                 transforms: Optional[Transform] = lambda x: x,
-                 pad_size: Optional[int] = 100,
-                 device: Optional[str] = 'cpu',
-                 sample_per_image: Optional[int] = 1):
+    def __init__(
+        self,
+        path: Union[List[str], str],
+        transforms: Optional[Transform] = lambda x: x,
+        pad_size: Optional[int] = 100,
+        device: Optional[str] = "cpu",
+        sample_per_image: Optional[int] = 1,
+    ):
         """
 
         Will output as device, but for all data to be stored on device, you must explicitly call self.to(device)
@@ -33,7 +36,7 @@ class dataset(Dataset):
         :param sample_per_image:
         """
 
-        super(Dataset, self).__init__()
+        # super(Dataset, self).__init__()
 
         # Reassigning variables
         self.files = []
@@ -54,39 +57,49 @@ class dataset(Dataset):
         path: List[str] = [path] if isinstance(path, str) else path
 
         for p in path:
-            self.files.extend(glob.glob(f'{p}{os.sep}*.labels.tif'))
+            self.files.extend(glob.glob(f"{p}{os.sep}*.labels.tif"))
 
-
-        for f in tqdm(self.files, desc='Loading Files: '):
-            if os.path.exists(f[:-11:] + '.tif'):
-                image_path = f[:-11:] + '.tif'
+        for f in tqdm(self.files, desc="Loading Files: "):
+            if os.path.exists(f[:-11:] + ".tif"):
+                image_path = f[:-11:] + ".tif"
             else:
-                raise FileNotFoundError(f'Could not find file: {image_path[:-4:]} with extensions .tif')
+                raise FileNotFoundError(
+                    f"Could not find file: {image_path[:-4:]} with extensions .tif"
+                )
 
-            skeleton = torch.load(f[:-11:] + '.skeletons.trch') if os.path.exists(
-                f[:-11:] + '.skeletons.trch') else {-1: torch.tensor([])}
+            skeleton = (
+                torch.load(f[:-11:] + ".skeletons.trch")
+                if os.path.exists(f[:-11:] + ".skeletons.trch")
+                else {-1: torch.tensor([])}
+            )
 
             image: np.array = io.imread(image_path)  # [Z, X, Y, C] or [X, Y, C]
             masks: np.array = io.imread(f)  # [Z, X, Y] or [X, Y]
 
-            logging.debug(f'loaded image from filename: {image_path}, {image.shape=}, {image.dtype=}, {masks.shape=}, {masks.dtype=}')
+            logging.debug(
+                f"loaded image from filename: {image_path}, {image.shape=}, {image.dtype=}, {masks.shape=}, {masks.dtype=}"
+            )
 
             # we need to guess if its a 3d data operation, or 2d...
             if min(image.shape) <= 4 or image.ndim == 2:  # probably a 2d color image
                 image: np.array = image[..., np.newaxis] if image.ndim == 2 else image
                 image: np.array = image.transpose(-1, 0, 1)
 
-                masks: np.array = masks.transpose([2, 0, 1]) if masks.ndim == 3 else masks
+                masks: np.array = masks.transpose(
+                    [2, 0, 1]
+                ) if masks.ndim == 3 else masks
 
             else:
                 image: np.array = image[..., np.newaxis] if image.ndim == 3 else image
                 image: np.array = image.transpose(-1, 1, 2, 0)
                 image: np.array = image[[2], ...] if image.shape[0] > 3 else image
 
-                masks: np.array = masks.transpose(1, 2, 0)[np.newaxis, ...].astype(np.int32)
+                masks: np.array = masks.transpose(1, 2, 0)[np.newaxis, ...].astype(
+                    np.int32
+                )
 
             scale: int = 2 ** 16 if image.max() > 256 else 255  # Our images might be 16 bit, or 8 bit
-            scale = scale if image.max() > 1 else 1.
+            scale = scale if image.max() > 1 else 1.0
 
             # Convert to torch.tensor
             image: Tensor = torch.from_numpy(image / scale)  # .to(self.device)
@@ -99,7 +112,6 @@ class dataset(Dataset):
             self.image.append(image.half())
             self.masks.append(masks)
 
-
     def __len__(self) -> int:
         return len(self.image) * self.sample_per_image
 
@@ -107,18 +119,18 @@ class dataset(Dataset):
         item = item // self.sample_per_image
 
         with torch.no_grad():
-            data_dict = {'image': self.image[item],
-                         'masks': self.masks[item]}
+            data_dict = {"image": self.image[item], "masks": self.masks[item]}
+
             data_dict = self.transforms(data_dict)
 
         return data_dict
 
-    def to(self, device: str):
+    def to(self, *args, **kwargs):
         """
         It is faster to do transforms on cuda, and if your GPU is big enough, everything can live there!!!
         """
-        self.image = [x.to(device) for x in self.image]
-        self.masks = [x.to(device) for x in self.masks]
+        self.image = [x.to(*args, **kwargs) for x in self.image]
+        self.masks = [x.to(*args, **kwargs) for x in self.masks]
 
         return self
 
@@ -128,11 +140,11 @@ class dataset(Dataset):
         return self
 
     def cuda(self):
-        self.to('cuda:0', non_blocking=True)
+        self.to("cuda:0", non_blocking=True)
         return self
 
     def cpu(self):
-        self.to('cpu')
+        self.to("cpu")
         return self
 
     def pin_memory(self):
@@ -143,14 +155,54 @@ class dataset(Dataset):
         self.masks = [x.pin_memory() for x in self.masks]
         return self
 
+    def sum(self):
+        total = 0.
+        for x in self.image:
+            total += x.clone().to(torch.float64).sum()
+        return total
+
+    def numel(self):
+        numel = sum([x.numel() for x in self.image]) if self.image else 0
+        return numel
+
+    def mean(self):
+        if self.image:
+            return self.sum() / self.numel()
+        else:
+            return None
+
+    def std(self):
+        mean = self.mean()
+        n = self.numel()
+
+        if mean is not None:
+            numerator = self.subtract_square_sum(mean)
+            return math.sqrt(numerator / n)
+        else:
+            return None
+
+    def subtract_square_sum(self, other):
+        """
+        returns the sum of the entire dataset, each px subtracted by other
+        :param other:
+        :return:
+        """
+        total = 0
+        for x in self.image:
+            total += x.to(torch.float64).sub(other).pow(2).sum()
+        return total
+
+
 
 class BackgroundDataset(Dataset):
-    def __init__(self,
-                 path: Union[List[str], str],
-                 transforms: Optional[Transform] = lambda x: x,
-                 pad_size: Optional[int] = 100,
-                 device: Optional[str] = 'cpu',
-                 sample_per_image: Optional[int] = 1):
+    def __init__(
+        self,
+        path: Union[List[str], str],
+        transforms: Optional[Transform] = lambda x: x,
+        pad_size: Optional[int] = 100,
+        device: Optional[str] = "cpu",
+        sample_per_image: Optional[int] = 1,
+    ):
         super(Dataset, self).__init__()
         """
         A dataset for images that contain nothing
@@ -165,16 +217,21 @@ class BackgroundDataset(Dataset):
         path: List[str] = [path] if isinstance(path, str) else path
 
         for p in path:
-            self.files.extend(glob.glob(f'{p}{os.sep}*.labels.tif'))
+            self.files.extend(glob.glob(f"{p}{os.sep}*.labels.tif"))
 
-        for f in tqdm(self.files, desc='Loading Files: '):
-            if os.path.exists(f[:-11:] + '.tif'):
-                image_path = f[:-11:] + '.tif'
+        for f in tqdm(self.files, desc="Loading Files: "):
+            if os.path.exists(f[:-11:] + ".tif"):
+                image_path = f[:-11:] + ".tif"
             else:
-                raise FileNotFoundError(f'Could not find file: {image_path[:-4:]} with extensions .tif')
+                raise FileNotFoundError(
+                    f"Could not find file: {image_path[:-4:]} with extensions .tif"
+                )
 
-            skeleton = torch.load(f[:-11:] + '.skeletons.trch') if os.path.exists(
-                f[:-11:] + '.skeletons.trch') else {-1: torch.tensor([])}
+            skeleton = (
+                torch.load(f[:-11:] + ".skeletons.trch")
+                if os.path.exists(f[:-11:] + ".skeletons.trch")
+                else {-1: torch.tensor([])}
+            )
 
             image: np.array = io.imread(image_path)  # [Z, X, Y, C]
             masks: np.array = io.imread(f)  # [Z, X, Y]
@@ -186,7 +243,7 @@ class BackgroundDataset(Dataset):
             scale: int = 2 ** 16 if image.max() > 256 else 255  # Our images might be 16 bit, or 8 bit
             scale: int = scale if image.max() > 1 else 1
 
-            image: Tensor = torch.from_numpy(image / scale) # .to(self.device)
+            image: Tensor = torch.from_numpy(image / scale)  # .to(self.device)
             self.image.append(image.half())
 
     def __len__(self) -> int:
@@ -198,10 +255,12 @@ class BackgroundDataset(Dataset):
         item = item // self.sample_per_image
 
         with torch.no_grad():
-            data_dict = {'image': self.image[item],
-                         'masks': torch.empty((1)),
-                         'skeletons': {-1: torch.empty((1))},
-                         'baked-skeleton': None}
+            data_dict = {
+                "image": self.image[item],
+                "masks": torch.empty((1)),
+                "skeletons": {-1: torch.empty((1))},
+                "baked-skeleton": None,
+            }
 
             # Transformation pipeline
             with torch.no_grad():
@@ -211,7 +270,9 @@ class BackgroundDataset(Dataset):
             if isinstance(data_dict[k], torch.Tensor):
                 data_dict[k] = data_dict[k].to(self.device)
             elif isinstance(data_dict[k], dict):
-                data_dict[k] = {key: value.to(self.device) for (key, value) in data_dict[k].items()}
+                data_dict[k] = {
+                    key: value.to(self.device) for (key, value) in data_dict[k].items()
+                }
 
         return data_dict
 
@@ -221,17 +282,57 @@ class BackgroundDataset(Dataset):
         """
         self.image = [x.to(device) for x in self.image]
         self.masks = [x.to(device) for x in self.masks]
-        self.skeletons = [{k: v.to(device) for (k, v) in x.items()} for x in self.skeletons]
+        self.skeletons = [
+            {k: v.to(device) for (k, v) in x.items()} for x in self.skeletons
+        ]
 
         return self
 
     def cuda(self):
-        self.to('cuda:0')
+        self.to("cuda:0")
         return self
 
     def cpu(self):
-        self.to('cpu')
+        self.to("cpu")
         return self
+
+    def sum(self):
+        total = 0
+        for x in self.image:
+            total += x.sum()
+        return total
+
+    def numel(self):
+        numel = sum([x.numel() for x in self.image]) if self.image else 0
+        return numel
+
+    def mean(self):
+        if self.image:
+            return self.sum() / self.numel
+        else:
+            return None
+
+    def std(self):
+        mean = self.mean()
+        n = self.numel()
+
+        if mean is not None:
+            numerator = self.sum_subtract(mean) ** 2
+            return math.sqrt(numerator / n)
+        else:
+            return None
+
+    def subtract_square_sum(self, other):
+        """
+        returns the sum of the entire dataset, each px subtracted by other
+        :param other:
+        :return:
+        """
+        total = 0
+        for x in self.image:
+            total += x.to(torch.float64).sub(other).pow(2).sum()
+
+        return total
 
 
 class MultiDataset(Dataset):
@@ -256,6 +357,7 @@ class MultiDataset(Dataset):
     multidata = MultiDataset(data0, data1) # can now index this and access both data0 and data1
 
     """
+
     def __init__(self, *args):
         self.datasets: List[Dataset] = []
         for ds in args:
@@ -295,25 +397,101 @@ class MultiDataset(Dataset):
 
     def cuda(self):
         for i in range(self.num_datasets):
-            self.datasets[i].to('cuda:0')
+            self.datasets[i].to("cuda:0")
         return self
 
     def cpu(self):
         for i in range(self.num_datasets):
-            self.datasets[i].to('cpu')
+            self.datasets[i].to("cpu")
         return self
+
+    def sum(self):
+        total = 0
+        for d in self.datasets:
+            _sum = d.sum()
+            total = total + _sum if _sum is not None else total
+
+        if total:
+            return total
+        else:
+            return None
+
+    def numel(self):
+        total = 0
+        for d in self.datasets:
+            _numel = d.numel()
+            total = total + _numel if _numel is not None else total
+
+        if total:
+            return total
+        else:
+            return None
+
+    def mean(self):
+        _sum = self.sum()
+        _numel = self.numel()
+
+        if _sum and _numel:
+            return _sum / _numel
+        else:
+            return None
+
+    def std(self):
+        mean = self.mean()
+        n = self.numel()
+
+        if mean is not None:
+            numerator = sum([d.subtract_square_sum(mean) for d in self.datasets])
+            return math.sqrt(numerator / n)
+        else:
+            return None
 
 
 # Custom batching function!
 def generic_colate(data_dict: List[Dict[str, Tensor]]) -> Tuple[Tensor, Tensor]:
-    images = torch.stack([dd.pop('image') for dd in data_dict], dim=0)
-    masks = torch.stack([dd.pop('masks') for dd in data_dict], dim=0)
+    images = torch.stack([dd.pop("image") for dd in data_dict], dim=0).to(
+        memory_format=torch.channels_last_3d
+    )
+    masks = torch.stack([dd.pop("masks") for dd in data_dict], dim=0).to(
+        memory_format=torch.channels_last_3d
+    )
 
     return images, masks
 
-def torchvision_colate(data_dict: List[Dict[str, Tensor]]) -> Tuple[List[Tensor], List[Tensor]]:
-    images = [dd.pop('image') for dd in data_dict]
-    masks = [dd.pop('masks') for dd in data_dict]
-    return images, masks
+
+def torchvision_colate(
+    data_dict: List[Dict[str, Tensor]]
+) -> Tuple[List[Tensor], List[Tensor]]:
+    images = [dd.pop("image") for dd in data_dict]
+    # masks = [dd.pop('masks') for dd in data_dict]
+    return images, data_dict
 
 
+if __name__ == '__main__':
+    from bism.train.merged_transform import TransformFromCfg
+    from bism.config.config import get_cfg_defaults
+    from bism.targets.maskrcnn import maskrcnn_target_from_dict
+
+    cfg = get_cfg_defaults()
+
+
+    augmentations: TransformFromCfg = TransformFromCfg(
+        cfg=cfg,
+        device='cpu'
+        if cfg.TRAIN.TRANSFORM_DEVICE=="default"
+        else torch.device(cfg.TRAIN.TRANSFORM_DEVICE),
+    ).post_fn(maskrcnn_target_from_dict)
+
+    # INIT DATA ----------------------------
+    _device = "cpu"
+
+    test = dataset(
+        path='/home/chris/Dropbox (Partners HealthCare)/bism/data/stereocilia/train',
+        transforms=augmentations,
+        sample_per_image=1,
+        device='cpu'
+    ).to(_device)
+
+    print(f'{test.mean()=}')
+    print(f'{test.std()=}')
+    print(f'{test.numel()=}')

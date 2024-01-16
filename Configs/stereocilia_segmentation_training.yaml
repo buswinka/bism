@@ -2,22 +2,27 @@ TRAIN:
   TARGET: 'torchvision'
   TRAIN_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/bism/data/stereocilia/train']
   VALIDATION_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/bism/data/stereocilia/val']
-  NUM_EPOCHS: 10000
-  N_WARMUP: 500
+  NUM_EPOCHS: 1000
+  N_WARMUP: 0
   SAVE_INTERVAL: 10000
-  SCHEDULER_T0: 5001
-  STORE_DATA_ON_GPU: True
-  TRAIN_BATCH_SIZE: 4
+  SCHEDULER_T0: 101
+  STORE_DATA_ON_GPU: False
+  TRAIN_BATCH_SIZE: 8
   TRAIN_SAMPLE_PER_IMAGE: [1]
-  VALIDATION_BATCH_SIZE: 4
+  VALIDATION_BATCH_SIZE: 1
   VALIDATION_SAMPLE_PER_IMAGE: [1]
   LOSS_FN: 'torchvision'
   LOSS_KEYWORDS: ['loss_weights']
   LOSS_VALUES: [[1., 1., 1., 1., 1.]]
-  LEARNING_RATE: 1e-5
+  LEARNING_RATE: 1e-4
   PRETRAINED_MODEL_PATH: '/home/chris/Dropbox (Partners HealthCare)/bism/trained_model_files/maskrcnn/Nov30_17-25-47_CHRISUBUNTU.trch'
   SAVE_PATH: '/home/chris/Dropbox (Partners HealthCare)/bism/trained_model_files/maskrcnn'
   OPTIMIZER: 'adamw'
+  MIXED_PRECISION: True
+  TRANSFORM_DEVICE: 'cpu' # or 'cpu'
+  DATASET_OUTPUT_DEVICE: 'cpu' # or 'cpu'
+  DATALOADER_NUM_WORKERS: 8
+  DATALOADER_PREFETCH_FACTOR: 1
 
 SYSTEM:
   NUM_GPUS: 1
@@ -34,3 +39,5 @@ AUGMENTATION:
   CROP_WIDTH: 3500
   CROP_HEIGHT: 3500
   AFFINE_SCALE: [0.33, 1.2]
+  AFFINE_SHEAR: [-15,15]
+  AFFINE_RATE: 0.75

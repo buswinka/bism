@@ -9,11 +9,14 @@ import torch.multiprocessing as mp
 import torch.nn as nn
 
 from bism.config.config import get_cfg_defaults
+from bism.config.validator import validate_config
 from bism.models.construct import cfg_to_bism_model, cfg_to_torchvision_model
 from bism.train.aclsd_engine import train as aclsd_train
 from bism.train.default_engine import train
 from bism.train.iadb_engine import train as iadb_engine
+from bism.train.maskrcnn_engine import train as maskrcnn_engine
 from bism.utils.distributed import find_free_port
+
 
 torch.manual_seed(101196)  # repeatability
 torch.set_float32_matmul_precision('high')
@@ -65,6 +68,7 @@ def main():
     # Loop over configs and run the training.
     for f in configs:
         cfg = load_cfg_from_filename(f)
+        validate_config(cfg)
         if 'maskrcnn' not in cfg.MODEL.BACKBONE:
             model: nn.Module | List[nn.Module] = cfg_to_bism_model(cfg)  # This is our skoots torch model
         else:
@@ -74,7 +78,16 @@ def main():
         if cfg.TRAIN.PRETRAINED_MODEL_PATH and not cfg.TRAIN.TARGET == 'aclsd':
             checkpoint = torch.load(cfg.TRAIN.PRETRAINED_MODEL_PATH)
             state_dict = checkpoint if not 'model_state_dict' in checkpoint else checkpoint['model_state_dict']
-            model.load_state_dict(state_dict)
+            try:
+                model.load_state_dict(state_dict)
+            except RuntimeError:
+                logging.error('could not map pretrained state_dict to instantiated model. Trying again with model.load_stat_dict(strict=False)')
+                try:
+                    model.load_state_dict(state_dict, strict=False)
+                except Exception as e:
+                    logging.critical('failed to map state_dict to instantiated model with model.load_stat_dict(strict=False). This may be due to an updated source file and should be reported as a bug.')
+                    raise e
+
 
 
         port = find_free_port()
@@ -85,6 +98,9 @@ def main():
 
         elif cfg.TRAIN.TARGET == 'iadb':
             mp.spawn(iadb_engine, args=(port, world_size, model, cfg, args.log), nprocs=world_size, join=True)
+
+        elif cfg.TRAIN.TARGET == 'torchvision':
+            mp.spawn(maskrcnn_engine, args=(port, world_size, model, cfg, args.log), nprocs=world_size, join=True)
 
         else:
             mp.spawn(train, args=(port, world_size, model, cfg, args.log), nprocs=world_size, join=True)

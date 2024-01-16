@@ -1,5 +1,6 @@
 import torch
 import lion_pytorch
+from functools import partial
 
 import bism.loss.cl_dice
 import bism.loss.tversky
@@ -15,8 +16,15 @@ from bism.targets.aclsd import aclsd
 from bism.targets.mtlsd import mtlsd
 from bism.targets.omnipose import omnipose
 from bism.targets.semantic import semantic
-from bism.targets.torchvision import maskrcnn
-from bism.targets.iadb import iadb_target
+from bism.targets.maskrcnn import maskrcnn
+from bism.targets.iadb import IADBTarget
+
+import bism.backends
+import bism.backends.unet_conditional_difusion
+from bism.models.generic import Generic
+from bism.models.lsd import LSDModel
+from bism.models.spatial_embedding import SpatialEmbedding
+
 
 """
  --- Idea --- 
@@ -32,7 +40,8 @@ _valid_targets = {
     'omnipose': omnipose,
     'semantic': semantic,
     'torchvision': maskrcnn,
-    'iadb': iadb_target
+    'iadb': IADBTarget,
+    'identity': lambda x: x
 }
 
 _valid_optimizers = {
@@ -59,4 +68,51 @@ _valid_loss_functions = {
 
 _valid_lr_schedulers = {
     'cosine_annealing_warm_restarts': torch.optim.lr_scheduler.CosineAnnealingWarmRestarts
+}
+_valid_backbone_constructors = {
+    "bism_unext": bism.backends.unext.UNeXT_3D,
+    "bism_unext2d": bism.backends.unext.UNeXT_2D,
+    "bism_unet": bism.backends.unet.UNet_3D,
+    "bism_unet2d": bism.backends.unet.UNet_2D,
+    "bism_unet2d_spade": bism.backends.unet_conditional_difusion.UNet_SPADE_2D,
+    "bism_unet3d_spade": bism.backends.unet_conditional_difusion.UNet_SPADE_3D,
+}
+
+_valid_model_blocks = {
+    "block3d": bism.modules.convnext_block.Block3D,
+    "block2d": bism.modules.convnext_block.Block2D,
+    'unet_block3d': bism.modules.unet_block.Block3D,
+    'unet_block2d': bism.modules.unet_block.Block2D,
+    'double_spade_block3d': bism.modules.unet_and_spade_block.DoubleSpadeBlock3D
+}
+
+_valid_upsample_layers = {
+    "upsamplelayer3d": bism.modules.upsample_layer.UpSampleLayer3D,
+    "upsamplelayer2d": bism.modules.upsample_layer.UpSampleLayer2D,
+}
+
+_valid_normalization = {
+    "layernorm": partial(
+        bism.modules.layer_norm.LayerNorm, data_format="channels_first"
+    )
+}
+
+_valid_activations = {
+    "gelu": torch.nn.GELU,
+    "relu": torch.nn.ReLU,
+    "silu": torch.nn.SiLU,
+    "selu": torch.nn.SELU,
+    "tanh": torch.nn.Tanh,
+    "sigmoid": torch.nn.Sigmoid,
+}
+
+_valid_concat_blocks = {
+    "concatconv3d": bism.modules.concat.ConcatConv3D,
+    "concatconv2d": bism.modules.concat.ConcatConv2D,
+}
+
+_valid_models = {
+    "spatial_embedding": SpatialEmbedding,
+    "lsd": LSDModel,
+    "generic": Generic,
 }

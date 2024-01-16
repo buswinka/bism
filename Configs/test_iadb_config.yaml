@@ -1,21 +1,24 @@
 TRAIN:
   TARGET: 'iadb'
+  PRETRAINED_MODEL_PATH: '/home/chris/Dropbox (Partners HealthCare)/bism/trained_model_files/generative/Jan04_16-28-31_CHRISUBUNTU.trch'
   TRAIN_DATA_DIR: ['/home/chris/Dropbox (Partners HealthCare)/bism/data/generate']
   VALIDATION_DATA_DIR: []
   SAVE_PATH: '/home/chris/Dropbox (Partners HealthCare)/bism/trained_model_files/generative'
-  NUM_EPOCHS: 7000
-  N_WARMUP: 100
+  NUM_EPOCHS: 20000
+  N_WARMUP: 0
   SAVE_INTERVAL: 10000
-  SCHEDULER_T0: 7001
+  SCHEDULER_T0: 20001
   STORE_DATA_ON_GPU: True
-  PRETRAINED_MODEL_PATH: ''
   TRAIN_BATCH_SIZE: 6
-  TRAIN_SAMPLE_PER_IMAGE: [64]
+  TRAIN_SAMPLE_PER_IMAGE: [8]
   VALIDATION_BATCH_SIZE: 0
   VALIDATION_SAMPLE_PER_IMAGE: []
   LOSS_FN: 'iadb'
-  VALIDATE_EPOCH_SKIP: 100
+  VALIDATE_EPOCH_SKIP: 250
   LEARNING_RATE: 1e-4
+  WEIGHT_DECAY: 0.0
+  MIXED_PRECISION: False
+  OPTIMIZER: 'adamw'
 
 SYSTEM:
   NUM_GPUS: 2
@@ -23,20 +26,25 @@ SYSTEM:
 MODEL:
   IN_CHANNELS: 2
   OUT_CHANNELS: 1
+  DIMS: [32,64,128,256,128,64,32]
+  DEPTHS: [1,1,1,1,1,1,1]
+  KERNEL_SIZE: 3
   MODEL: "generic"
   BACKBONE: "bism_unet3d_spade"
-  BLOCK: 'unet_block3d'
-  COMPILE: True
-  OUTPUT_ACTIVATIONS: ['tanh']
+  BLOCK: 'double_spade_block3d'
+  COMPILE: False
+  ACTIVATION: 'relu'
+#  OUTPUT_ACTIVATIONS: []
 
 TARGET:
   IADB:
     MASK_CHANNELS: 1
 
 AUGMENTATION:
-  FLIP_RATE: 0.5
-  BRIGHTNESS_RATE: 0.0
-  AFFINE_RATE: 0.3
   CONTRAST_RATE: 0.0
+  BRIGHTNESS_RATE: 0.0
+  CROP_WIDTH: 256
+  CROP_HEIGHT: 256
+  CROP_DEPTH: 16
   NOISE_RATE: 0.0
 
